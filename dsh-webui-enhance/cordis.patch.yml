@@ -2,3 +2,11 @@
 - insert:
     - id: webui-enhance
       name: 'dsh-webui-enhance'
+      config:
+        # 图片自动识别:文字模型下,用户消息中的图片自动调用视觉模型识别,
+        # 以结构化文本注入对话。未配置 baseUrl 时该功能关闭,图片原样放行。
+        vision:
+          baseUrl: https://token-plan-cn.xiaomimimo.com/v1
+          credential: XIAOMI_TOKEN_PLAN_CN_API_KEY
+          model: mimo-v2.5
+          timeoutMs: 20000

@@ -12,9 +12,9 @@ Agent swarm orchestration for DeepSeek Harness (DSH): the root agent orchestrate
 |---|---|
 | `dispatch(type, prompt, options?)` | Single delegation entry; unknown `type` fails hard (closed whitelist); concurrency-safe, callable in parallel within the same round (fan-out) |
 | Tier routing | lite / standard / pro / ultra → provider/model pinned at creation (zero runtime drift); `type` sets the default tier, `tier` overrides explicitly |
-| Tool boundaries | explore/write/review use allow-whitelists (fail-closed); code has full tools; all types deny the five delegation tools (dispatch/subagent/subagent_fork/workflow/ralph — anti-recursion, star team); allow list emptied → fail loud |
-| Persona library | 8 built-in personas (key → full text injection, or escaped free text); catalog section visible to root only |
-| Protocol injection | Delegation entry + Delegation decision (when to delegate / resident vs one-shot / member reuse) + Dispatch failure handling + team protocol skeleton, injected to root only (delegationDepth filtered) |
+| Tool boundaries | explore/write/review use allow-whitelists (fail-closed); review additionally gets **read-only bash** (git inspection only: `git status` / `git diff HEAD`); code has full tools; all types deny the five delegation tools (dispatch/subagent/subagent_fork/workflow/ralph — anti-recursion, star team); allow list emptied → fail loud |
+| Persona library | 10 built-in personas (key → full text injection, or escaped free text); catalog section visible to root only |
+| Protocol injection | Delegation entry + Delegation decision (when to delegate / resident vs one-shot / member reuse) + tier-decision rules (cost-first) + parallelism & reuse discipline + acceptance loop (maker/checker separation) + EARS acceptance criteria + Dispatch failure handling + team protocol skeleton, injected to root only (delegationDepth filtered) |
 | Concurrency & depth limits | maxActive=8 (event-paired accounting + synchronous in-flight double check) + maxTeam=16 (lazy authoritative count per dispatch) + maxDepth=3 |
 | Circuit breaker | `agent/request-error` counting (subagent failures only, delegationDepth>0), tripCodes match → cooldown; checked at tier resolution, error lists available tiers and cooldown left |
 | Structured output | output_schema foreground-only (conflicts with run_in_background → error); one retry then null |
@@ -60,7 +60,7 @@ Unset fields fall back to the built-in template in `lib/index.js`.
 | explore | lite | read / glob / grep / web_search / skill / list_agents / job_list / job_output / get_goal | read-only research: locate code, understand patterns, gather facts |
 | code | lite | all tools (minus the five delegation tools) | implementation: edit, build, self-test; report change summary + verification evidence |
 | write | standard | read / glob / grep / web_search / write / edit / skill / todo_write / list_agents / job_list / job_output | writing: papers, notes, READMEs |
-| review | pro | read / glob / grep / web_search / skill / list_agents / job_list / job_output / get_goal | independent review: quality/security/performance/edge cases; prioritized issues + concrete fixes |
+| review | pro | read / glob / grep / web_search / skill / list_agents / job_list / job_output / get_goal / bash (read-only git only) | independent review of the latest changes: FIRST run `git status` / `git diff HEAD` to see exactly what changed, then review quality/security/performance/edge cases; prioritized issues + concrete fixes (file:line refs) |
 
 **1. Configure model tiers** — edit `model-router.tiers` in `config.yaml` (or in your local override file):
 ```yaml
@@ -73,7 +73,7 @@ model-router:
 ```
 (For your own providers: configure the API-key env var under `llm-pi-ai.providers` in `~/.dsh/settings.yaml` first, then point `provider` at your provider name. **Keep private config in `model-router.local.yaml` — never in `config.yaml`, it is committed to GitHub.**)
 
-**2. Edit the persona pool** — edit `model-router.personas` (8 built-in: physics / ml / data / research / docs / backend / reviewer / statistician; override/add/remove freely):
+**2. Edit the persona pool** — edit `model-router.personas` (10 built-in: physics / ml / data / research / docs / backend / reviewer / statistician / planner / consultant; override/add/remove freely):
 ```yaml
 model-router:
   personas:

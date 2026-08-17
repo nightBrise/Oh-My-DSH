@@ -48,9 +48,9 @@ The four plugins mount differently — follow each plugin's own README:
 
 - **Single dispatch entry**: `dispatch(type, prompt, options?)` with a closed whitelist of types (explore / code / write / review); unknown types fail hard; same-round fan-out is concurrent (isConcurrencySafe)
 - **Tier routing**: lite / standard / pro / ultra → different models; provider/model pinned at creation, zero runtime drift
-- **Tool boundaries**: allow-lists for explore/write/review (fail-closed); code has full tools; all types deny the five delegation tools (recursion guard + star team)
-- **Persona library**: 8 built-in personas injected in full (or free text); directory section visible to root only
-- **Protocol injection**: delegation entry + delegation-decision guidance (when to delegate / persistent vs one-shot / member reuse) + failure handling + team protocol skeleton, injected into root only
+- **Tool boundaries**: allow-lists for explore/write/review (fail-closed); review also gets read-only bash (git inspection via `git diff HEAD`); code has full tools; all types deny the five delegation tools (recursion guard + star team)
+- **Persona library**: 10 built-in personas injected in full (or free text); directory section visible to root only
+- **Protocol injection**: delegation entry + delegation-decision guidance + tier-decision rules + parallelism & reuse discipline + acceptance loop (maker/checker separation) + EARS acceptance criteria + failure handling + team protocol skeleton, injected into root only
 - **Reliability**: dual concurrency caps + depth cap (maxActive / maxTeam / maxDepth), circuit breaking with cooldown, structured output, timeout cascades, summary follow-up, label & traceability audit
 - **Auditing**: structured `dispatch.log` lines (dispatch / result / error)
 - **Persistent members**: `run_in_background=true` creates continuable subagents; `send_message` to follow up, `list_agents` to enumerate
@@ -70,6 +70,7 @@ The four plugins mount differently — follow each plugin's own README:
 - **Token usage**: dual donut charts (provider/model), detail tables, balance card (live DeepSeek query), 30-day stacked chart
 - **Artifact preview**: click an artifact chip → browser-style tab cards panel; renders images / Markdown / HTML (iframe sandbox) / code & logs
 - **Details-pane sections**: artifact / team tabs (renders the subagent team for badgeboard), open state exposed to companion plugins
+- **Image auto-recognition**: in text-only-model conversations, user images are automatically recognized by the configured vision model (default Xiaomi mimo-v2.5) and injected as structured text; same-image cache for 10 minutes
 - **Deep copy pool**: 60 generation-status lines with per-session random wording and gradient shimmer animation
 - **@file mention**: type `@` in the input to fuzzy-search workspace files; the inserted path is read by the model itself
 - **Session deletion**: two-step confirmation, physically cleans session logs under `~/.dsh`

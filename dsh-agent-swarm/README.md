@@ -14,9 +14,9 @@ Agent swarm orchestration for DeepSeek Harness (DSH): the root agent orchestrate
 |---|---|
 | `dispatch(type, prompt, options?)` | 唯一委派入口，type 封闭白名单硬失败；同轮 fan-out 可并行调用（isConcurrencySafe） |
 | 档位路由（tier） | lite / standard / pro / ultra → provider/model 创建时钉死（零运行时漂移）；type 定默认档，tier 显式覆盖 |
-| 工具边界 | explore/write/review 用 allow 白名单（fail-closed）；code 全工具；全类型统一 deny 五委派工具（dispatch/subagent/subagent_fork/workflow/ralph，防递归 + 星型团队）；allow 滤空 fail-loud |
-| 人设库 | 8 个内置 persona（key→全文注入，或自由文本转义）；目录 section 仅 root 可见 |
-| 协议注入 | Delegation entry + 委托决策指南（何时委派 / 长驻 vs 一次性 / 成员复用）+ Dispatch failure handling + 团队协议骨架，仅注入 root（delegationDepth 过滤） |
+| 工具边界 | explore/write/review 用 allow 白名单（fail-closed）；review 另含**只读 bash**（仅限 git 检视 `git status`/`git diff HEAD`）；code 全工具；全类型统一 deny 五委派工具（dispatch/subagent/subagent_fork/workflow/ralph，防递归 + 星型团队）；allow 滤空 fail-loud |
+| 人设库 | 10 个内置 persona（key→全文注入，或自由文本转义）；目录 section 仅 root 可见 |
+| 协议注入 | Delegation entry + 委托决策指南（何时委派 / 长驻 vs 一次性 / 成员复用）+ 档位决策规则（成本优先）+ 并行与复用纪律 + 验收闭环（maker/checker 分离）+ EARS 验收标准 + Dispatch failure handling + 团队协议骨架，仅注入 root（delegationDepth 过滤） |
 | 并发与深度上限 | maxActive=8（事件配对记账 + execute 同步计数双检）+ maxTeam=16（派发时惰性权威计数）+ maxDepth=3 |
 | 熔断 | agent/request-error 计数（仅子代理失败 delegationDepth>0），tripCodes 命中 → 冷却；tier 解析时查熔断，命中报错列出可用 tier 与冷却剩余 |
 | 结构化输出 | output_schema 仅前台（与 run_in_background 冲突即报错）；校验失败重试一次→null |
@@ -62,7 +62,7 @@ preset 行支持**绝对路径**（自动转 file: URL 导入）或相对路径�
 | explore | lite | read / glob / grep / web_search / skill / list_agents / job_list / job_output / get_goal | 只读调研：定位代码、理解模式、收集事实 |
 | code | lite | 全工具（统一 deny 五委派工具） | 实现：编辑、构建、自测；报告改动与验证证据 |
 | write | standard | read / glob / grep / web_search / write / edit / skill / todo_write / list_agents / job_list / job_output | 文档写作：论文、笔记、README |
-| review | pro | read / glob / grep / web_search / skill / list_agents / job_list / job_output / get_goal | 独立审查：质量/安全/性能/边界；报告优先级问题与具体修复 |
+| review | pro | read / glob / grep / web_search / skill / list_agents / job_list / job_output / get_goal / bash（仅只读 git） | 独立审查**最近的更改**：先 `git status` / `git diff HEAD` 看清实际改动再审查，报告优先级问题与具体修复（file:line 引用） |
 
 **1. 配置模型档位**——编辑 `config.yaml` 的 `model-router.tiers`（或本地片段放 `model-router.local.yaml`）：
 ```yaml
@@ -75,7 +75,7 @@ model-router:
 ```
 （自己的供应商：先在 `~/.dsh/settings.yaml` 的 `llm-pi-ai.providers` 配 API key 环境变量，再把 provider 换成你的供应商名——**私有配置放 `model-router.local.yaml`**，不要进 `config.yaml`）
 
-**2. 编辑人设池**——编辑 `model-router.personas`（内置 8 个：physics / ml / data / research / docs / backend / reviewer / statistician，可覆盖/增删）：
+**2. 编辑人设池**——编辑 `model-router.personas`（内置 10 个：physics / ml / data / research / docs / backend / reviewer / statistician / planner / consultant，可覆盖/增删）：
 ```yaml
 model-router:
   personas:

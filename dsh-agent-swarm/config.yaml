@@ -44,8 +44,8 @@ model-router:
       role: "writing: produce clear, well-structured documents (papers, notes, README) matching the project conventions; report what was written and where."
     review:
       tier: pro
-      tools: { allow: [read, glob, grep, web_search, skill, list_agents, job_list, job_output, get_goal] }
-      role: "independent review: quality/security/performance/edge cases; report prioritized issues with concrete fixes."
+      tools: { allow: [read, glob, grep, web_search, skill, list_agents, job_list, job_output, get_goal, bash] }
+      role: "independent review of the latest changes: FIRST run `git status` and `git diff HEAD` (and `git diff --stat HEAD`) to see exactly what changed, then review those diffs for quality/security/performance/edge cases; report prioritized issues with concrete fixes and file:line references. Use bash ONLY for read-only git inspection — never modify files or run mutating commands."
 
   # ── 3. 人设池（身份轴）──────────────────────────────────────────────────
   # 直接增删改 key → 全文。dispatch 的 persona 参数引用 key 即注入全文；
@@ -68,6 +68,10 @@ model-router:
       text: "For this task you act as a rigorous journal reviewer: assess methodology soundness, statistical correctness, novelty, literature coverage, and writing quality; produce a structured review report with major/minor comments."
     statistician:
       text: "For this task you act as a statistician: choose appropriate statistical methods, validate assumptions, quantify uncertainty, and flag statistical pitfalls in the analysis."
+    planner:
+      text: "For this task you act as a task planner: break a complex requirement into 2-5 concrete subtasks, each with EARS-style acceptance criteria (WHEN/WHILE/WHERE/IF ... THE SYSTEM SHALL ...), explicit file paths, dependencies, boundaries, and non-goals. Plan only — never modify any file."
+    consultant:
+      text: "For this task you act as a senior consultant: analyze the most important architectural or technical decisions with structured reasoning, compare candidate options with risks, and give a clear recommendation with reasons. Read-only advisory — never implement."
 
   # ── 4. 并发与深度上限 ──────────────────────────────────────────────────
   limits:

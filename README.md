@@ -48,9 +48,9 @@ cd Oh-My-DSH
 
 - **唯一委派入口**：`dispatch(type, prompt, options?)`，type 为封闭白名单（explore / code / write / review），未知类型硬失败；同轮 fan-out 可并行（isConcurrencySafe）
 - **档位路由**：lite / standard / pro / ultra → 不同模型；provider/model 创建时钉死，零运行时漂移
-- **工具边界**：explore/write/review 白名单 fail-closed；code 全工具；全类型 deny 五类委派工具（防递归 + 星型团队）
-- **人设库**：8 个内置 persona 全文注入（或自由文本），目录 section 仅 root 可见
-- **协议注入**：委派入口 + 委托决策指南（何时委派 / 长驻 vs 一次性 / 成员复用）+ 失败处理 + 团队协议骨架，仅注入 root
+- **工具边界**：explore/write/review 白名单 fail-closed；review 另含只读 bash（git 检视 `git diff HEAD`）；code 全工具；全类型 deny 五类委派工具（防递归 + 星型团队）
+- **人设库**：10 个内置 persona 全文注入（或自由文本），目录 section 仅 root 可见
+- **协议注入**：委派入口 + 委托决策指南 + 档位决策规则 + 并行与复用纪律 + 验收闭环（maker/checker 分离）+ EARS 验收标准 + 失败处理 + 团队协议骨架，仅注入 root
 - **稳定性**：并发双上限 + 深度上限（maxActive / maxTeam / maxDepth）、熔断冷却、结构化输出、超时级联、摘要续写、标签与追溯审计
 - **审计**：`dispatch.log` 结构化审计行（派发 / result / error）
 - **常驻成员**：`run_in_background=true` 创建可续接子代理，`send_message` 续接、`list_agents` 枚举
@@ -70,6 +70,7 @@ cd Oh-My-DSH
 - **Token 用量**：供应商/模型双环形图、明细表、余额卡片（DeepSeek 实时查询）、近 30 天堆叠图
 - **产物预览**：点击产物 chip → 浏览器式标签卡片面板，支持图片 / Markdown / HTML（iframe 沙箱）/ 代码日志
 - **详情栏分段**：产物 / 团队两个分段（配合 badgeboard 渲染子代理团队），开合状态暴露给配套插件
+- **图片自动识别**：文字模型对话中用户图片自动调用视觉模型（默认小米 mimo-v2.5）结构化识别并以文本注入，同图缓存 10 分钟
 - **Deep 文案池**：60 条生成状态文案随机换词，渐变 shimmer 动画
 - **@文件提及**：输入框 `@` 触发工作区文件模糊搜索，插入路径后模型自行读取
 - **会话删除**：两段确认，物理清理 `~/.dsh` 下会话日志

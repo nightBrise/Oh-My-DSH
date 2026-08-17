@@ -1,6 +1,6 @@
 const handlers = {}
 export const inject = ['webServer']
-export async function apply(ctx) {
+export async function apply(ctx, config = {}) {
     ctx.effect(() => () => { if (writeTimer !== null) { clearTimeout(writeTimer); writeTimer = null } }, 'dsh-webui-enhance: persist-timer')
     const fs = ctx.get('fs')
     const sessions = ctx.get('sessions')
@@ -635,6 +635,111 @@ export async function apply(ctx) {
       pendingDeletes.add(sessionId)
       return result
     }
+
+  // ---- 图片自动识别(agent/pre-step):文字模型下的图片描述注入 ----
+  const visionCfg = (() => {
+    const v = (config && config.vision) || (config && config.provider) || {}
+    return {
+      baseUrl: typeof v.baseUrl === 'string' && v.baseUrl ? String(v.baseUrl).replace(/\/+$/, '') : '',
+      model: typeof v.model === 'string' && v.model ? v.model : 'mimo-v2.5',
+      credential: typeof v.credential === 'string' && v.credential ? v.credential : 'XIAOMI_TOKEN_PLAN_CN_API_KEY',
+      timeoutMs: Number(v.timeoutMs) > 0 ? Number(v.timeoutMs) : 20000,
+    }
+  })()
+  const STRUCTURED_PROMPT = [
+    '\u8BF7\u4ED4\u7EC6\u5206\u6790\u8FD9\u5F20\u56FE\u7247,\u8F93\u51FA\u4E00\u4EFD\u5B8C\u6574\u3001\u7ED3\u6784\u5316\u7684\u63CF\u8FF0(\u4F7F\u7528\u7B80\u4F53\u4E2D\u6587),\u5FC5\u987B\u5305\u542B\u4EE5\u4E0B\u5168\u90E8\u5C0F\u8282,\u4E0D\u8981\u7701\u7565\u4EFB\u4F55\u5C0F\u8282:',
+    '1. \u3010\u603B\u4F53\u6982\u8FF0\u3011\u4E00\u53E5\u8BDD\u6982\u62EC\u56FE\u7247\u4E3B\u9898\u4E0E\u5185\u5BB9\u3002',
+    '2. \u3010\u6587\u5B57\u5185\u5BB9\u3011\u9010\u5B57\u8F6C\u5F55\u56FE\u4E2D\u6240\u6709\u53EF\u89C1\u6587\u5B57,\u4FDD\u7559\u539F\u6587;\u82E5\u65E0\u6587\u5B57\u8BF7\u660E\u786E\u5199\u201C\u65E0\u201D\u3002',
+    '3. \u3010\u56FE\u8868\u4E0E\u6570\u636E\u3011\u82E5\u5305\u542B\u8868\u683C\u3001\u56FE\u8868\u3001\u4EE3\u7801\u6216\u6570\u636E,\u63D0\u53D6\u5176\u7ED3\u6784\u4E0E\u5173\u952E\u5185\u5BB9;\u82E5\u65E0\u8BF7\u660E\u786E\u5199\u201C\u65E0\u201D\u3002',
+    '4. \u3010\u754C\u9762\u4E0E\u5E03\u5C40\u3011\u82E5\u4E3A\u754C\u9762\u3001\u622A\u56FE\u6216\u6587\u6863,\u63CF\u8FF0\u4E3B\u8981\u533A\u57DF\u3001\u63A7\u4EF6\u3001\u5E03\u5C40\u987A\u5E8F\u4E0E\u72B6\u6001\u3002',
+    '5. \u3010\u5173\u952E\u7EC6\u8282\u3011\u5BF9\u7406\u89E3\u56FE\u7247\u91CD\u8981\u4F46\u672A\u88AB\u4EE5\u4E0A\u5C0F\u8282\u8986\u76D6\u7684\u4FE1\u606F\u3002',
+    '6. \u3010\u7ED3\u8BBA\u8981\u70B9\u3011\u7528 2-3 \u6761\u603B\u7ED3\u7528\u6237\u6700\u53EF\u80FD\u9700\u8981\u7684\u4FE1\u606F\u3002',
+    '\u8981\u6C42:\u4E00\u6B21\u63CF\u8FF0\u5B8C\u6574,\u8986\u76D6\u6240\u6709\u53EF\u89C1\u4FE1\u606F;\u65E0\u76F8\u5173\u5185\u5BB9\u7684\u5C0F\u8282\u5FC5\u987B\u660E\u786E\u5199\u201C\u65E0\u201D\u3002',
+  ].join('\n')
+  const visionCache = new Map()
+  const fnv1a = (s) => {
+    let h = 0x811c9dc5
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0 }
+    return h.toString(36)
+  }
+  const describeImage = async (base64, mime, apiKey) => {
+    const payload = {
+      model: visionCfg.model,
+      messages: [{ role: 'user', content: [
+        { type: 'image_url', image_url: { url: 'data:' + mime + ';base64,' + base64 } },
+        { type: 'text', text: STRUCTURED_PROMPT },
+      ] }],
+      max_tokens: 2048,
+    }
+    const ac = new AbortController()
+    const timer = setTimeout(() => ac.abort(), visionCfg.timeoutMs)
+    try {
+      const res = await fetch(visionCfg.baseUrl + '/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + apiKey },
+        body: JSON.stringify(payload),
+        signal: ac.signal,
+      })
+      if (!res.ok) throw new Error('vision http ' + res.status)
+      const data = await res.json()
+      const text = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content
+      if (typeof text !== 'string' || !text) throw new Error('vision empty response')
+      return text.trim()
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  const describeBlock = async (ref, signal) => {
+    const cacheKey = 'v:' + String(ref.attachmentId) + ':' + fnv1a(visionCfg.baseUrl + '|' + visionCfg.model)
+    const hit = visionCache.get(cacheKey)
+    if (hit && Date.now() - hit.at < 600000) return hit.text
+    try {
+      const attachments = ctx.attachments || ctx.get('attachments')
+      if (!attachments || typeof attachments.readImage !== 'function') throw new Error('attachment service unavailable')
+      const stored = await attachments.readImage(ref, signal)
+      const bytes = stored && stored.data ? stored.data : null
+      if (!bytes) throw new Error('attachment read failed')
+      const base64 = typeof Buffer !== 'undefined' ? Buffer.from(bytes).toString('base64') : btoa(String.fromCharCode.apply(null, bytes))
+      let apiKey = ''
+      if (credentials) {
+        try {
+          const hitCred = await credentials.resolve(visionCfg.credential)
+          if (hitCred && typeof hitCred.value === 'string') apiKey = hitCred.value
+        } catch (err) {
+        }
+      }
+      if (!apiKey) throw new Error('vision api key missing')
+      const text = '[\u56FE\u7247\u8BC6\u522B]\n' + await describeImage(base64, ref.mediaType || 'image/png', apiKey)
+      visionCache.set(cacheKey, { at: Date.now(), text })
+      if (visionCache.size > 200) { const first = visionCache.keys().next().value; visionCache.delete(first) }
+      return text
+    } catch (err) {
+      return '[\u56FE\u7247\u8BC6\u522B\u5931\u8D25: ' + String((err && err.message) || err) + ']'
+    }
+  }
+  ctx.on('agent/pre-step', async (payload, next) => {
+    if (!visionCfg.baseUrl) return next()
+    const msgs = payload && Array.isArray(payload.messages) ? payload.messages : []
+    let changed = false
+    const nextMessages = []
+    for (const msg of msgs) {
+      if (!msg || msg.role !== 'user' || !Array.isArray(msg.content)) { nextMessages.push(msg); continue }
+      let hasImage = false
+      const content = []
+      for (const block of msg.content) {
+        if (block && block.type === 'image' && block.attachment && block.attachment.attachmentId) {
+          hasImage = true
+          content.push({ type: 'text', text: await describeBlock(block.attachment, payload.signal) })
+        } else {
+          content.push(block)
+        }
+      }
+      nextMessages.push(hasImage ? { ...msg, content } : msg)
+      if (hasImage) changed = true
+    }
+    if (!changed) return next()
+    return { kind: 'enter', messages: nextMessages }
+  })
 
   // ---- HTTP RPC 层(静态包通信,替代动态 harness.handle) ----
   const json = (res, body, status) => {

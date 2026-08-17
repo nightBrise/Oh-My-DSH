@@ -13,6 +13,7 @@ DSH(DeepSeek Harness)**Web GUI 增强插件**:在不改 DSH 源码的前提下,�
 | **Token 用量** | 对话页顶部新增「Token 用量」Tab:双环形图(供应商/模型占比)、供应商明细表(含合计行)、当前工作区会话用量表(点击行打开对应会话)、当前会话上下文测量(上下文/压力 tokens)、余额/配额卡片(DeepSeek 实时查询,服务端 55s 缓存、前端每 60s 刷新;小米/通义跳转控制台)、近 30 天/当月每日用量堆叠图(悬停某天时明细表、环形图与会话表联动切换为当天数据,附悬浮窗);用量每 10s、余额每 60s 自动刷新 |
 | **产物标签预览** | 点击对话尾部产物 chip(内部派发 `dsh:produced-open` 事件)→ 右侧面板以**浏览器式标签卡片**打开:可同时开多个产物、点击卡片切换、单个关闭;渲染:**图片**(base64)、**Markdown**(标题/表格/图片/列表/代码块/引用)、**HTML**(iframe 沙箱)、**代码/日志**(等宽文本)。面板默认占除侧栏外一半宽度,拖动分隔条可调(无壳层 520px 上限) |
 | **详情栏分段(产物 / 团队)** | 右侧栏面板带「📦 产物 / 👥 团队」两个分段(均带 `aria-pressed`):竖条开栏默认显示团队,打开产物时自动切到产物分段并开栏,点击产物 tab 可切回预览。**团队分段渲染子座位 `details.produced.team`**(配套插件 dsh-badgeboard 注入内容,未安装时显示占位提示) |
+| **图片自动识别** | 文字模型对话中,用户发送的图片自动调用配置的视觉模型(**结构化描述**:总体/文字转录/图表数据/界面布局/关键细节/结论要点),以文本注入对话;同图短时缓存,不重复调用;识别失败降级提示不阻塞对话 |
 | **Deep 文案池** | 生成状态行文案从 60 条 "Deep xxx…" 均匀随机(避免连续重复),每个状态元素独立固定一个文案(换元素/会话时换词),带渐变 shimmer 动画 |
 | **@文件提及** | 输入框 `@` 触发工作区文件模糊搜索(前缀/包含/模糊匹配,忽略 `node_modules`、`.git` 与点开头条目,目录遍历深度 ≤ 5),选择后插入 `@路径 `,模型自行读取 |
 | **会话删除** | 会话头部 🗑️ 按钮,两段确认,删除后物理清理 `~/.dsh` 下的会话日志文件(运行中会话延迟到结束后自动清理;清理不可用时仅从列表移除、日志保留) |
@@ -105,6 +106,23 @@ dsh plugin --profile web add /path/to/dsh-webui-enhance
 修改后重启 `dsh web` 生效。发布流程:推到 GitHub 仓库 → 使用者按上文「安装」执行。
 
 Cordis 工具页的「Web UI 改造 Demo」调试面板(`tool.view.cordis` 槽,key `self`)展示插件状态与 `@` 文件搜索源注册情况,可输入关键词直接测试 `file-search`(limit 5)与列宽接管。
+
+## 🗄 图片自动识别配置
+
+默认使用小米 Token Plan CN 的 MiMo V2.5 视觉模型(与原 dsh-vision-toolkit 相同端点),在 cordis.patch.yml 的 webui-enhance 行配置:
+
+```yaml
+- id: webui-enhance
+  name: 'dsh-webui-enhance'
+  config:
+    vision:
+      baseUrl: https://token-plan-cn.xiaomimimo.com/v1   # 空则关闭自动识别
+      credential: XIAOMI_TOKEN_PLAN_CN_API_KEY            # credentials 中的 key 名
+      model: mimo-v2.5
+      timeoutMs: 20000
+```
+
+识别结果以「[图片识别]」标记的结构化文本替代原图片进入模型;`attachmentId` 为内容寻址,同图在 10 分钟内自动命中缓存,不重复调用视觉 API。
 
 ## ⚠️ 注意事项
 
