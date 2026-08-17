@@ -17,7 +17,8 @@ DSH Web 界面插件：把**派发出去的子代理**变成可见的「工牌�
 | **hover 信息卡** | 胶囊级渲染 + JS 定位（`useLayoutEffect` 重算 `offsetTop - scrollTop + h/2`），**提升到滚动区外**避免被 overflow 裁剪：48px 线稿头像 + 姓名 + 职位·职级·模式行（职级 tier 色）+ 状态行；160ms 延时消失（鼠标可移入卡片），项滚出可视区自动关卡；hover/focus 均触发 |
 | **胶囊交互** | 点击成员 → **跳转子代理详细界面**（先 `refreshSubagents` 再读快照 `subagentsByParent` 推导直接父地址 `{parentSessionId, childSessionId, mode}`，回退 `subagentAddress`，失败静默）；点击空白/头部/底部 → `openDetails()`；Tab + Enter/Space 键盘可达（focus/blur 同步触发信息卡） |
 | **团队面板**（`details.produced.team` 子座位） | 头部统计（⚡ 工作中 / 💤 休息 / ✓ 已完成）+ **A/B/C 工牌卡风格切换**（作用于展开卡 `data-style`，默认 A，内存态）+ **↻ 刷新档案**（重拉 roster RPC）；成员行点击展开：48px 工牌大图（full 密度 + 2.6px 加重描边）+ 字段网格（subagent_id / 任务 / 类型 / 职级 / 模式）+ 「📂 在目录中打开」跳原生 catalog；面板内 **Esc 关闭右侧栏**；空态文案「暂无团队」 |
-| **指派后自动弹右侧栏** | `sessions.list` 订阅检测新增 child（`parentId` = 当前会话）→ `refreshSubagents` + `openDetails()`（幂等，无开合自记账）；**`seatReady` 前置**：webui-enhance 子座位未就绪时不弹栏 |
+| **指派后自动弹右侧栏** | `sessions.list` 订阅检测新增 child（`parentId` = 当前会话）→ `refreshSubagents` + `openDetails()`（幂等，无开合自记账）；**`seatReady` 前置**：webui-enhance 子座位未就绪时不弹栏；会话切换时重置 child 基线，不跨会话误触发 |
+| **重启自愈** | 目录**缺失或未就绪**（重启后首次 `subagentsByParent[cur]` 为 undefined / loading）→ 主动 `refreshSubagents` 自愈（修复「不派发就不显示」）；成员数据目录 entries 优先 + 会话层补充 |
 | **随机线稿头像** | FNV-1a 32 位种子哈希（subagent_id，offset basis `0x811c9dc5` / prime `0x01000193`）→ 6 要素池逐项取模（脸 4 / 发 8 / 眼 4 / 眉 4 / 嘴 4 / 特征 7 = **14,336 组合**），同人同脸、跨渲染稳定、不绑定 type；密度 `full`（详情卡，含眉）/ `simple`（列表/胶囊/信息卡，省眉）/ `symbol`（模块预留，UI 未用）；职级色环 standard 蓝 / pro 紫 `#8564c4`（暗 `#9d84d6`）/ ultra 琥珀；工作态呼吸 halo（1.8s 透明度动效）；`vector-effect: non-scaling-stroke` 恒定屏幕描边 |
 | **状态模型** | 三态：**工作中**（`activity === 'running'` → 呼吸 halo + 彩点 + 「正在 \<任务\>…」）/ **休息**（压暗 + 「等待下一轮」）/ **已完成**（✓ + 「已完成 ✓」）；状态点 + 文案**双编码** |
 | **职级·角色表** | type → 角色：explore 研究员 / code 工程师 / write 文档撰写 / review 审查官 / general 通用成员（未知 → 「成员」）；tier → Lite / Standard / Pro / Ultra（未知 → 「职级未知」，不编造） |

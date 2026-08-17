@@ -82,11 +82,11 @@ cd Oh-My-DSH
 - **details 栏「团队」分段**：成员列表 + 展开工牌大图（A/B/C 三风格切换）+ 档案字段 + 「在目录中打开」
 - **点击成员跳转子代理视图**：快照推导直接父地址，键盘可达
 - **指派后自动弹右侧栏**：检测到新增子代理 → 刷新目录 + 打开详情栏（幂等，`seatReady` 前置，仅本会话内新增派发触发）
-- **重启自愈**：目录未就绪时主动 `refreshSubagents` 恢复成员（重启后胶囊不消失）；成员数据目录 entries 优先 + 会话层补充
+- **重启自愈**：目录缺失或未就绪时主动 `refreshSubagents` 恢复成员（重启后胶囊不消失）；成员数据目录 entries 优先 + 会话层补充
 - **随机线稿头像**：FNV-1a 种子哈希（subagent_id）→ 6 要素池确定性生成（14,336 组合），同人同脸、零资产管道
 - **跨包契约**：依赖 webui-enhance 更新版的 details 栏分段；Host 档案 RPC `POST /dsh-badgeboard/badge-team/*`
 
-📄 完整设计：`dsh-agent-swarm/docs/BADGE-BOARD-SPEC.md`（v0.2.12）
+📄 完整设计：`dsh-agent-swarm/docs/BADGE-BOARD-SPEC.md`（v0.2.13）
 
 ---
 

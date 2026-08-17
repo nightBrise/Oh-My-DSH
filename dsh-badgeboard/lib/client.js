@@ -226,13 +226,14 @@ window.__ModuleLoader__.load({
             }
           }
           store.prevChildIds = idSet
-          // 目录层（权威）；未就绪（重启后 loading/absent）→ 主动刷新自愈（完成后 notifier 再触发本 sync）
+          // 目录层（权威）；缺失或未就绪（重启后首次：subagentsByParent[cur] 为 undefined，或 loading）→ 主动刷新自愈（完成后 notifier 再触发本 sync）
           const catalog = (snap.subagentsByParent && snap.subagentsByParent[cur]) || null
-          if (catalog && catalog.state !== 'ready' && !refreshing && sessionsSvc.refreshSubagents) {
+          const catalogReady = !!(catalog && catalog.state === 'ready')
+          if (!catalogReady && !refreshing && sessionsSvc.refreshSubagents) {
             refreshing = true
             sessionsSvc.refreshSubagents(cur).catch(() => {}).finally(() => { refreshing = false })
           }
-          const entries = (catalog && catalog.state === 'ready' && catalog.entries) ? catalog.entries : []
+          const entries = (catalogReady && catalog.entries) ? catalog.entries : []
           // 成员 = 目录 entries（权威，重启后可自愈）∪ byId 会话（补充 completed 等）
           const fromCatalog = entries.filter((en) => en.kind === 'child').map((en) => {
             const s = kids.find((k) => k.id === en.id) || null

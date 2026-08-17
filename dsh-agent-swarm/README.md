@@ -116,7 +116,7 @@ dispatch(type="explore", prompt="持续调研 xxx", run_in_background=true)  # �
 - `docs/COMPARISON-REVIEW.md` — 与 Kimi Code Swarm / Claude Code Agent Teams 三方边界对比
 - `docs/MAINTENANCE-ROADMAP.md` — 维护路线图（P0-P2）
 - `docs/BADGE-BOARD.md` — 工牌面板设计草案（讨论中）
-- `docs/BADGE-BOARD-SPEC.md` — 子代理工牌右侧栏方案 Spec（v0.2.12 定稿，已固化入 `dsh-badgeboard` 包）
+- `docs/BADGE-BOARD-SPEC.md` — 子代理工牌右侧栏方案 Spec（v0.2.13 定稿，已固化入 `dsh-badgeboard` 包）
 - `docs/NOTES.md` — model-router 迭代笔记（v1-v8 动态插件迭代记录）
 - `docs/PACKAGE-NAMING.md` — 命名决策记录
 
