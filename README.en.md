@@ -80,11 +80,12 @@ The four plugins mount differently — follow each plugin's own README:
 - **Floating capsule on the middle-pane right edge**: online avatar stack (working agents first, idle dimmed, breathing status dot, seniority ring), hover info card
 - **"Team" section in the details pane**: member list + expanded badge card (A/B/C style switching) + profile fields + "open in directory"
 - **Click member to jump to subagent view**: direct-parent address derived from snapshot, keyboard accessible
-- **Auto-open right pane on dispatch**: detects new subagents → refreshes roster + opens details pane (idempotent, gated on `seatReady`)
+- **Auto-open right pane on dispatch**: detects new subagents → refreshes roster + opens details pane (idempotent, gated on `seatReady`, only for dispatches within the current session)
+- **Restart self-healing**: proactively calls `refreshSubagents` when the catalog is not ready (capsule survives restarts); members prefer catalog entries with session-layer supplement
 - **Seeded line-art avatars**: FNV-1a hash of `subagent_id` → deterministic generation from a 6-element pool (14,336 combos); same agent keeps the same face, zero asset pipeline
 - **Cross-package contract**: depends on the updated webui-enhance details-pane sections; host profile RPC `POST /dsh-badgeboard/badge-team/*`
 
-📄 Full design: `dsh-agent-swarm/docs/BADGE-BOARD-SPEC.md` (v0.2.6)
+📄 Full design: `dsh-agent-swarm/docs/BADGE-BOARD-SPEC.md` (v0.2.12)
 
 ---
 

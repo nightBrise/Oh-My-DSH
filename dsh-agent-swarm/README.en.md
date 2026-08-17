@@ -114,7 +114,7 @@ dispatch(type="explore", prompt="Keep researching xxx", run_in_background=true) 
 - `docs/COMPARISON-REVIEW.md` — Boundary-design comparison vs Kimi Code Swarm / Claude Code Agent Teams
 - `docs/MAINTENANCE-ROADMAP.md` — Maintenance roadmap (P0-P2)
 - `docs/BADGE-BOARD.md` — Badge-board panel design draft (in discussion)
-- `docs/BADGE-BOARD-SPEC.md` — Badge-board right-panel Spec (v0.2.7 final, shipped in the `dsh-badgeboard` package)
+- `docs/BADGE-BOARD-SPEC.md` — Badge-board right-panel Spec (v0.2.12 final, shipped in the `dsh-badgeboard` package)
 - `docs/NOTES.md` — model-router iteration notes (v1-v8 dynamic-plugin iterations)
 - `docs/PACKAGE-NAMING.md` — Naming decision record
 

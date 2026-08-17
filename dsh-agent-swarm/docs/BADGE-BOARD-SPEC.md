@@ -1,6 +1,6 @@
 # 子代理工牌 · 右侧栏方案（方案 B）Spec v0.2.3（定稿）
 
-> 状态：**定稿 v0.2.7 → 已固化 v0.1.0（2026-08-17）**（v0.2.6 修复胶囊 overflow 裁剪 hover 信息卡、网格列宽解析取错段；v0.2.7 头像高对比 + 职·级角标：线稿 label-secondary→label-primary、描边 2.1px、色环 2px、tier 淡色底，成员项加「职·级」小字角标；已固化入 `dsh-badgeboard` 包，实现状态见 §8）
+> 状态：**定稿 v0.2.12 → 已固化 v0.1.0（2026-08-17）**（v0.2.6 修复胶囊 overflow 裁剪与网格列宽解析；v0.2.7 头像高对比 + 职·级角标；v0.2.8 胶囊回归纯头像、职位职级移入 hover 卡；v0.2.9 放大尺寸；v0.2.10 滚动扩展 + hover 卡提升到滚动区外；v0.2.11 成员点击跳转子代理（目录推导地址）；v0.2.12 重启自愈——成员数据改目录 entries 优先 + 目录未就绪自动 refreshSubagents（修复重启后胶囊消失）；已固化入 `dsh-badgeboard` 包，实现状态见 §8）
 > 关联：[BADGE-BOARD.md](./BADGE-BOARD.md)（v0.1 草案）· [DESIGN.md](./DESIGN.md)（swarm 包设计）· dsh-webui-enhance（Web GUI 增强包）· DSH 原生 `subagent-catalog`（dsh-client-ui-subagent）
 > 审查记录：美学（5×P1 已吸收）、UX/a11y（8×P1 已吸收）、架构（4×P1 因方案收缩消解大半）、深度审查 v0.2.2（P1×2/P2×5）、多智能体 UI 调研（在场头像栈 + hover 展开，v0.2.3）
 > 日期：2026-08-17

@@ -118,7 +118,7 @@ window.__ModuleLoader__.load({
       }
 
       // ================= 全局 UI 状态 =================
-      const store = { members: [], roster: null, pending: [], style: 'A', seatReady: false, prevChildIds: null, frontMatched: {} }
+      const store = { members: [], roster: null, pending: [], style: 'A', seatReady: false, prevChildIds: null, prevCur: undefined, frontMatched: {} }
       const listeners = new Set()
       const emit = () => { listeners.forEach((fn) => fn()) }
       const subscribe = (fn) => { listeners.add(fn); return () => listeners.delete(fn) }
@@ -203,11 +203,17 @@ window.__ModuleLoader__.load({
       }
 
       // ================= 数据：sessions 快照订阅 + 自动弹栏触发 =================
+      let refreshing = false
       const sync = () => {
         try {
           if (!sessionsSvc || !sessionsSvc.list) return
           const snap = sessionsSvc.list.getSnapshot()
           const cur = snap.current
+          // 会话切换：重置 child 基线，弹栏只服务于「本会话内新增派发」，不跨会话误触发
+          if (store.prevCur !== cur) {
+            store.prevCur = cur
+            store.prevChildIds = null
+          }
           const byId = snap.byId || {}
           const kids = Object.values(byId).filter((s) => s && s.parentId === cur)
           const idSet = new Set(kids.map((k) => k.id))
@@ -220,22 +226,41 @@ window.__ModuleLoader__.load({
             }
           }
           store.prevChildIds = idSet
-          // 目录层（权威）
+          // 目录层（权威）；未就绪（重启后 loading/absent）→ 主动刷新自愈（完成后 notifier 再触发本 sync）
           const catalog = (snap.subagentsByParent && snap.subagentsByParent[cur]) || null
+          if (catalog && catalog.state !== 'ready' && !refreshing && sessionsSvc.refreshSubagents) {
+            refreshing = true
+            sessionsSvc.refreshSubagents(cur).catch(() => {}).finally(() => { refreshing = false })
+          }
           const entries = (catalog && catalog.state === 'ready' && catalog.entries) ? catalog.entries : []
-          // 会话层（补充）
-          store.members = kids.map((s) => {
-            const entry = entries.find((en) => en.kind === 'child' && en.id === s.id) || null
+          // 成员 = 目录 entries（权威，重启后可自愈）∪ byId 会话（补充 completed 等）
+          const fromCatalog = entries.filter((en) => en.kind === 'child').map((en) => {
+            const s = kids.find((k) => k.id === en.id) || null
             return {
-              id: s.id,
-              label: (entry && entry.label) || s.displayTitle || s.id,
-              mode: entry ? entry.mode : 'one-shot',
-              activity: entry ? entry.activity : (s.running ? 'running' : 'inactive'),
-              completed: !!s.completed,
-              hasChildren: entry ? !!entry.hasChildren : false,
+              id: en.id,
+              label: en.label || en.id,
+              mode: en.mode || 'one-shot',
+              activity: en.activity || 'inactive',
+              completed: s ? !!s.completed : false,
+              hasChildren: !!en.hasChildren,
               type: undefined, tier: undefined,
             }
           })
+          const fromById = kids
+            .filter((s) => !fromCatalog.some((c) => c.id === s.id))
+            .map((s) => {
+              const entry = entries.find((en) => en.kind === 'child' && en.id === s.id) || null
+              return {
+                id: s.id,
+                label: (entry && entry.label) || s.displayTitle || s.id,
+                mode: entry ? entry.mode : 'one-shot',
+                activity: entry ? entry.activity : (s.running ? 'running' : 'inactive'),
+                completed: !!s.completed,
+                hasChildren: entry ? !!entry.hasChildren : false,
+                type: undefined, tier: undefined,
+              }
+            })
+          store.members = fromCatalog.concat(fromById)
           emit()
         } catch (e) {
           console.error('badgeboard: sync failed', e)
