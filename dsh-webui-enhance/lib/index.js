@@ -637,12 +637,21 @@ export async function apply(ctx, config = {}) {
     }
 
   // ---- 图片自动识别(agent/pre-step):文字模型下的图片描述注入 ----
+  // 视觉模型配置:由用户自己管理可用模型列表(config.vision.models)与默认选择(config.vision.defaultModel)
+  // 同时兼容单模型写法(config.vision.baseUrl 直接配置);未配置任何模型时功能关闭,图片原样放行
   const visionCfg = (() => {
     const v = (config && config.vision) || (config && config.provider) || {}
+    const models = Array.isArray(v.models) ? v.models.filter((m) => m && typeof m === 'object') : []
+    const single = typeof v.baseUrl === 'string' && v.baseUrl
+      ? [{ id: 'default', baseUrl: v.baseUrl, credential: v.credential, model: v.model, timeoutMs: v.timeoutMs }]
+      : []
+    const list = models.length > 0 ? models : single
+    const def = typeof v.defaultModel === 'string' && v.defaultModel ? v.defaultModel : (list[0] ? String(list[0].id) : '')
+    const pick = list.find((m) => m && String(m.id) === def) || list[0] || null
     return {
-      baseUrl: typeof v.baseUrl === 'string' && v.baseUrl ? String(v.baseUrl).replace(/\/+$/, '') : '',
-      model: typeof v.model === 'string' && v.model ? v.model : 'mimo-v2.5',
-      credential: typeof v.credential === 'string' && v.credential ? v.credential : 'XIAOMI_TOKEN_PLAN_CN_API_KEY',
+      baseUrl: pick && typeof pick.baseUrl === 'string' ? String(pick.baseUrl).replace(/\/+$/, '') : '',
+      model: pick && typeof pick.model === 'string' && pick.model ? pick.model : '',
+      credential: pick && typeof pick.credential === 'string' && pick.credential ? pick.credential : '',
       timeoutMs: Number(v.timeoutMs) > 0 ? Number(v.timeoutMs) : 20000,
     }
   })()
@@ -701,14 +710,15 @@ export async function apply(ctx, config = {}) {
       if (!bytes) throw new Error('attachment read failed')
       const base64 = typeof Buffer !== 'undefined' ? Buffer.from(bytes).toString('base64') : btoa(String.fromCharCode.apply(null, bytes))
       let apiKey = ''
-      if (credentials) {
+      if (credentials && visionCfg.credential) {
         try {
           const hitCred = await credentials.resolve(visionCfg.credential)
           if (hitCred && typeof hitCred.value === 'string') apiKey = hitCred.value
         } catch (err) {
         }
       }
-      if (!apiKey) throw new Error('vision api key missing')
+      if (!apiKey && typeof process !== 'undefined' && process.env && process.env.VISION_API_KEY) apiKey = process.env.VISION_API_KEY
+      if (!apiKey) throw new Error('vision api key missing (configure credential or VISION_API_KEY)')
       const text = '[\u56FE\u7247\u8BC6\u522B]\n' + await describeImage(base64, ref.mediaType || 'image/png', apiKey)
       visionCache.set(cacheKey, { at: Date.now(), text })
       if (visionCache.size > 200) { const first = visionCache.keys().next().value; visionCache.delete(first) }

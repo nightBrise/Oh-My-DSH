@@ -70,7 +70,7 @@ The four plugins mount differently — follow each plugin's own README:
 - **Token usage**: dual donut charts (provider/model), detail tables, balance card (live DeepSeek query), 30-day stacked chart
 - **Artifact preview**: click an artifact chip → browser-style tab cards panel; renders images / Markdown / HTML (iframe sandbox) / code & logs
 - **Details-pane sections**: artifact / team tabs (renders the subagent team for badgeboard), open state exposed to companion plugins
-- **Image auto-recognition**: in text-only-model conversations, user images are automatically recognized by the configured vision model (default Xiaomi mimo-v2.5) and injected as structured text; same-image cache for 10 minutes
+- **Image auto-recognition**: in text-only-model conversations, user images are automatically recognized by user-configured vision models (multi-model list + default choice; off when unconfigured) and injected as structured text; same-image cache for 10 minutes
 - **Deep copy pool**: 60 generation-status lines with per-session random wording and gradient shimmer animation
 - **@file mention**: type `@` in the input to fuzzy-search workspace files; the inserted path is read by the model itself
 - **Session deletion**: two-step confirmation, physically cleans session logs under `~/.dsh`

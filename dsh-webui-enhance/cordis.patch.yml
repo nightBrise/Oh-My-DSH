@@ -2,11 +2,19 @@
 - insert:
     - id: webui-enhance
       name: 'dsh-webui-enhance'
-      config:
-        # 图片自动识别:文字模型下,用户消息中的图片自动调用视觉模型识别,
-        # 以结构化文本注入对话。未配置 baseUrl 时该功能关闭,图片原样放行。
-        vision:
-          baseUrl: https://token-plan-cn.xiaomimimo.com/v1
-          credential: XIAOMI_TOKEN_PLAN_CN_API_KEY
-          model: mimo-v2.5
-          timeoutMs: 20000
+      # 图片自动识别:由用户自行配置可用的视觉模型列表(见 README「图片自动识别配置」)。
+      # 未配置任何模型时该功能关闭,图片原样放行。示例(按需取消注释并填写):
+      # config:
+      #   vision:
+      #     defaultModel: mimo-v2.5
+      #     models:
+      #       - id: mimo-v2.5
+      #         label: 小米 MiMo V2.5
+      #         baseUrl: https://token-plan-cn.xiaomimimo.com/v1
+      #         credential: XIAOMI_TOKEN_PLAN_CN_API_KEY
+      #         model: mimo-v2.5
+      #       - id: qwen-vl
+      #         label: 通义千问 VL
+      #         baseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1
+      #         credential: DASHSCOPE_API_KEY
+      #         model: qwen-vl-plus

@@ -109,20 +109,34 @@ The "Web UI 改造 Demo" debug panel on the Cordis tool page (`tool.view.cordis`
 
 ## 🗄 Image auto-recognition config
 
-Default vision model: Xiaomi MiMo V2.5 via the Token Plan CN endpoint (same endpoint as dsh-vision-toolkit), configured in the `webui-enhance` row of `cordis.patch.yml`:
+Which vision models are used is entirely up to you (the package presets nothing): configure a model list and the default choice in the `webui-enhance` row of your profile's `cordis.patch.yml`.
 
 ```yaml
 - id: webui-enhance
   name: 'dsh-webui-enhance'
   config:
     vision:
-      baseUrl: https://token-plan-cn.xiaomimimo.com/v1   # empty = auto-recognition off
-      credential: XIAOMI_TOKEN_PLAN_CN_API_KEY            # credential name in ~/.dsh/.credentials.yaml
-      model: mimo-v2.5
+      defaultModel: mimo-v2.5          # default model (by id)
       timeoutMs: 20000
+      models:                          # your available vision models
+        - id: mimo-v2.5
+          label: Xiaomi MiMo V2.5
+          baseUrl: https://token-plan-cn.xiaomimimo.com/v1
+          credential: XIAOMI_TOKEN_PLAN_CN_API_KEY   # key name in DSH credentials
+          model: mimo-v2.5
+        - id: qwen-vl
+          label: Tongyi Qianwen VL
+          baseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1
+          credential: DASHSCOPE_API_KEY
+          model: qwen-vl-plus
 ```
 
-The recognition result replaces the image in the model input as structured text prefixed with `[图片识别]`; `attachmentId` is content-addressed, so the same image hits the cache within 10 minutes without re-calling the vision API.
+Key points:
+
+- **With no model configured** the feature is off and images pass through untouched;
+- Single-model shorthand: configure `vision.baseUrl / vision.credential / vision.model` directly;
+- If no credential resolves, the env var `VISION_API_KEY` is used as fallback;
+- The recognition result replaces the image in the model input as structured text prefixed with `[图片识别]`; `attachmentId` is content-addressed, so the same image hits the cache within 10 minutes without re-calling the vision API.
 
 ## ⚠️ Notes
 

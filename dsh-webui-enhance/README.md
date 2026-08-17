@@ -109,20 +109,33 @@ Cordis 工具页的「Web UI 改造 Demo」调试面板(`tool.view.cordis` 槽,k
 
 ## 🗄 图片自动识别配置
 
-默认使用小米 Token Plan CN 的 MiMo V2.5 视觉模型(与原 dsh-vision-toolkit 相同端点),在 cordis.patch.yml 的 webui-enhance 行配置:
+图片识别使用哪些视觉模型由你自己管理(本包不预设任何模型):在 profile 的 `cordis.patch.yml` 中为 `webui-enhance` 行配置模型列表与默认选择。
 
 ```yaml
 - id: webui-enhance
   name: 'dsh-webui-enhance'
   config:
     vision:
-      baseUrl: https://token-plan-cn.xiaomimimo.com/v1   # 空则关闭自动识别
-      credential: XIAOMI_TOKEN_PLAN_CN_API_KEY            # credentials 中的 key 名
-      model: mimo-v2.5
+      defaultModel: mimo-v2.5          # 默认使用哪个模型(id)
       timeoutMs: 20000
+      models:                          # 你可用的视觉模型列表
+        - id: mimo-v2.5
+          label: 小米 MiMo V2.5
+          baseUrl: https://token-plan-cn.xiaomimimo.com/v1
+          credential: XIAOMI_TOKEN_PLAN_CN_API_KEY   # DSH credentials 中的 key 名
+          model: mimo-v2.5
+        - id: qwen-vl
+          label: 通义千问 VL
+          baseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1
+          credential: DASHSCOPE_API_KEY
+          model: qwen-vl-plus
 ```
 
-识别结果以「[图片识别]」标记的结构化文本替代原图片进入模型;`attachmentId` 为内容寻址,同图在 10 分钟内自动命中缓存,不重复调用视觉 API。
+要点:
+- **未配置任何模型**时该功能关闭,图片原样交给模型;
+- 单模型简写:`vision.baseUrl / vision.credential / vision.model` 直接配置即可;
+- credential 未配时回退读环境变量 `VISION_API_KEY`;
+- 识别结果以「[图片识别]」标记的结构化文本替代原图片进入模型;`attachmentId` 为内容寻址,同图在 10 分钟内自动命中缓存,不重复调用视觉 API。
 
 ## ⚠️ 注意事项
 
