@@ -9,11 +9,22 @@ swarm_test.md
 swarm_test.py
 dsh-webui-enhance/_fix_timers.py
 
+# ============ Research notes (personal, not for publishing) ============
+research/
+
+# ============ Redundant copy (canonical module lives in dsh-badgeboard/lib) ============
+dsh-agent-swarm/lib/avatar-gen.js
+
 # ============ Design-stage directory (config merged into dsh-agent-swarm) ============
 model-router/
 
 # ============ Dependencies ============
 node_modules/
+
+# ============ Build artifacts ============
+dist/
+*.tgz
+*.tsbuildinfo
 
 # ============ Local private config overrides ============
 *.local.yaml

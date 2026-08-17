@@ -348,6 +348,7 @@ window.__ModuleLoader__.load({
             const total = frame.getBoundingClientRect().width
             const half = Math.max(300, Math.floor((total - sidebarW) / 2))
             frame.dataset.dshWide = '1'
+            frame.dataset.dshDetailsOpen = '1'
             frame.style.setProperty('--dsh-sidebar-px', sidebarW + 'px')
             frame.style.setProperty('--dsh-details-px', half + 'px')
             frame.style.setProperty('--dsh-handle-left', (total - half) + 'px')
@@ -552,6 +553,7 @@ window.__ModuleLoader__.load({
           const f = overlay && overlay.parentElement
           if (f) {
             delete f.dataset.dshWide
+            delete f.dataset.dshDetailsOpen
             delete f.dataset.dragging
             f.style.removeProperty('--dsh-sidebar-px')
             f.style.removeProperty('--dsh-details-px')
@@ -573,11 +575,13 @@ window.__ModuleLoader__.load({
               onClick: () => { if (tabs.length > 0) setPane('produced') },
               style: view === 'produced' ? tabActive : tabBase,
               title: '\u5207\u6362\u5230\u4EA7\u7269\u9884\u89C8',
+              'aria-pressed': view === 'produced',
             }, '\uD83D\uDCE6 \u4EA7\u7269'),
             React.createElement('button', {
               onClick: () => setPane('team'),
               style: view === 'team' ? tabActive : tabBase,
               title: '\u5207\u6362\u5230\u56E2\u961F\u5DE5\u724C\u9762\u677F',
+              'aria-pressed': view === 'team',
             }, '\uD83D\uDC65 \u56E2\u961F'),
           ),
           React.createElement('div', { style: tabbar },
@@ -588,7 +592,7 @@ window.__ModuleLoader__.load({
                   const isActive = t.key === active
                   return React.createElement('div', {
                     key: t.key,
-                    onClick: () => setActive(t.key),
+                    onClick: () => { setActive(t.key); setPane('produced') },
                     style: isActive ? tabActive : tabBase,
                     title: t.path,
                   },
@@ -596,11 +600,12 @@ window.__ModuleLoader__.load({
                     React.createElement('button', {
                       onClick: (ev) => { ev.stopPropagation(); closeTab(t.key) },
                       style: tabClose,
+                      'aria-label': '\u5173\u95ED ' + tn,
                     }, '\u2715'),
                   )
                 }),
           ),
-          React.createElement('button', { onClick: doClose, style: closeBtn }, '\u2715'),
+          React.createElement('button', { onClick: doClose, style: closeBtn, 'aria-label': '\u5173\u95ED\u9762\u677F' }, '\u2715'),
         ),
         React.createElement('div', { style: body }, content),
       )

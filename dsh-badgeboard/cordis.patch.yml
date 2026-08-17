@@ -1,0 +1,4 @@
+# dsh-badgeboard bundle patch — 安装本包后自动挂载插件行(无需手改 profile)
+- insert:
+    - id: badgeboard
+      name: 'dsh-badgeboard'
