@@ -1,0 +1,87 @@
+# dsh-agent-swarm 配置（用户直接编辑本文件，clone 仓库后即可改）
+#
+# 生效方式：每次 dispatch 调用时现读本文件（热加载，无需重启、无需重开会话）。
+# 未配置的字段自动回退 lib/index.js 内置模板默认值。
+#
+# 模板默认档位（无配置时）：
+#   lite/standard → deepseek-official / deepseek-v4-flash
+#   pro/ultra     → deepseek-official / deepseek-v4-pro
+
+model-router:
+  # ── 1. 档位 → 模型映射（成本轴）─────────────────────────────────────────
+  # 每个档位 = provider（llm-pi-ai providers 里配置的供应商名）+ model。
+  # 想用自己的供应商：先在 ~/.dsh/settings.yaml 的 llm-pi-ai.providers 配好
+  # API key 环境变量，再把这里 provider 换成你的供应商名。此处留空 = 用模板。
+  tiers:
+    lite:     { provider: deepseek-official, model: deepseek-v4-flash }
+    standard: { provider: deepseek-official, model: deepseek-v4-flash }
+    pro:      { provider: deepseek-official, model: deepseek-v4-pro }
+    ultra:    { provider: deepseek-official, model: deepseek-v4-pro }
+
+  # ── 2. 类型（安全轴：工具边界 + 角色 + 默认档位）────────────────────────
+  # explore=只读调研（lite 默认）/ code=全工具实现（lite 默认，可派发时提档）/
+  # write=文档写作（禁 bash）/ review=只读审查（pro 默认）。
+  # 可增删类型、调默认档、改工具边界；新增条目自动进入协议 section 的类型清单。
+  # 示例：
+  # types:
+  #   code:
+  #     tier: standard      # 把 code 默认档从 lite 提到 standard
+  #   data_clean:
+  #     tier: lite
+  #     tools: { allow: [read, glob, grep, write, edit] }
+  #     role: "clean and normalize datasets; report schema changes and row counts."
+  types:
+    explore:
+      tier: lite
+      tools: { allow: [read, glob, grep, web_search, skill, list_agents, job_list, job_output, get_goal] }
+      role: "read-only research: locate code, understand patterns, gather facts; report findings with concrete locations and conclusions."
+    code:
+      tier: lite
+      role: "implementation: edit, build, self-test a well-specified change; report change summary and verification evidence."
+    write:
+      tier: standard
+      tools: { allow: [read, glob, grep, web_search, write, edit, skill, todo_write, list_agents, job_list, job_output] }
+      role: "writing: produce clear, well-structured documents (papers, notes, README) matching the project conventions; report what was written and where."
+    review:
+      tier: pro
+      tools: { allow: [read, glob, grep, web_search, skill, list_agents, job_list, job_output, get_goal] }
+      role: "independent review: quality/security/performance/edge cases; report prioritized issues with concrete fixes."
+
+  # ── 3. 人设池（身份轴）──────────────────────────────────────────────────
+  # 直接增删改 key → 全文。dispatch 的 persona 参数引用 key 即注入全文；
+  # 人设目录 section（仅 root 可见）自动渲染新条目。默认上传内置 8 个模板，
+  # 你可继续编辑/覆盖，或添加自己的专业人设（如 accelerator/plasma/optics）。
+  personas:
+    physics:
+      text: "For this task you act as a computational physicist specializing in accelerator and beam physics. Work from the governing equations, keep simulation code numerically sound, and verify against known physics cases."
+    ml:
+      text: "For this task you act as an applied machine learning engineer. Build, train, and evaluate models rigorously: clean data, split correctly, report metrics with uncertainty."
+    data:
+      text: "For this task you act as a data analyst. Inspect data before modeling, choose appropriate statistics, and present findings as clear summaries and plots."
+    research:
+      text: "For this task you act as a research agent. Survey literature and existing code, compare approaches on concrete criteria, and report a recommendation with sources."
+    docs:
+      text: "For this task you act as a technical writer. Produce clear, accurate, well-structured documentation in English, matching the codebase conventions."
+    backend:
+      text: "For this task you act as a backend engineer. Own correctness, API design, and performance of the Python codebase; refactor and extend existing modules safely."
+    reviewer:
+      text: "For this task you act as a rigorous journal reviewer: assess methodology soundness, statistical correctness, novelty, literature coverage, and writing quality; produce a structured review report with major/minor comments."
+    statistician:
+      text: "For this task you act as a statistician: choose appropriate statistical methods, validate assumptions, quantify uncertainty, and flag statistical pitfalls in the analysis."
+
+  # ── 4. 并发与深度上限 ──────────────────────────────────────────────────
+  limits:
+    maxActive: 8          # 并发"干活中"子代理数
+    maxTeam: 16           # 常驻 continuable 成员总数
+    maxDepth: 3           # 委派深度上限（服务层强制）
+
+  # ── 5. 熔断 ────────────────────────────────────────────────────────────
+  circuit:
+    tripCodes: [RATE_LIMIT, QUOTA, TIMEOUT, TRANSPORT, SERVER, EMPTY_RESPONSE]
+    threshold: 2          # 连续失败次数触发熔断
+    cooldownMs: 60000     # 冷却时长
+
+  # ── 6. 其他 ────────────────────────────────────────────────────────────
+  logPath: ./dispatch.log          # 审计日志（相对本文件所在目录）
+  protocolSection: true            # root 注入 Delegation 协议
+  personaCatalogSection: true      # root 注入人设目录

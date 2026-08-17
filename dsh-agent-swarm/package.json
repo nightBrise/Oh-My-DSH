@@ -1,0 +1,27 @@
+{
+  "name": "dsh-agent-swarm",
+  "version": "0.1.0",
+  "description": "Agent swarm orchestration for DeepSeek Harness: dispatch subagents with model-tier routing (lite/standard/pro/ultra), tool-boundary filtering, persona injection, circuit breaking, concurrency limits, and a star-team protocol (root orchestrates, members do not spawn).",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "config.yaml",
+    "README.md",
+    "README.en.md",
+    "docs/"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-subagent": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.6",
+    "yaml": "^2.0.0"
+  }
+}

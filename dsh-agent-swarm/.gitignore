@@ -1,0 +1,15 @@
+# Dependencies (symlinked to local harness install — never commit)
+node_modules/
+
+# Runtime audit log (user-local; regenerated)
+dispatch.log
+
+# User-local config override (if you create one; config.yaml itself IS committed)
+*.local.yaml
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

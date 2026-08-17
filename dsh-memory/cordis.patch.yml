@@ -1,0 +1,7 @@
+# dsh-memory bundle patch: insert the project-memory plugin row.
+# Applied as one insert over the profile root; later user patch layers may
+# address the row by id (e.g. `- id: dsh-memory` with `disabled: true`).
+
+- insert:
+    - id: dsh-memory
+      name: 'dsh-memory'
