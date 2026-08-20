@@ -10,9 +10,9 @@ A **Web GUI enhancement plugin** for DSH (DeepSeek Harness): adds a set of pract
 
 | Feature | Description |
 | --- | --- |
-| **Token Usage** | New "Token Usage" tab at the top of the conversation page: twin donut charts (provider/model share), provider detail table (with totals row), current-workspace session usage table (click a row to open that session), live current-session context measurement (context/pressure tokens), balance/quota cards (live DeepSeek query, 55s server cache, refreshed every 60s; Xiaomi/Tongyi link to their consoles), and a last-30-days / current-month stacked daily chart (hovering a day switches the detail table, donuts and session table to that day's data, with a tooltip). Usage auto-refreshes every 10s, balance every 60s |
+| **Token Usage** | New "Token Usage" tab at the top of the conversation page: twin donut charts (provider/model share), provider detail table (with totals row), current-workspace session usage table (click a row to open that session), live current-session context measurement (context/pressure tokens), balance/quota cards (live DeepSeek query, 55s server cache, refreshed every 60s; Xiaomi/Tongyi link to their consoles), and a last-30-days / current-month stacked daily chart (hovering a day switches the detail table, donuts and session table to that day's data, with a tooltip; hover is decided by a fixed anchor rect captured on enter, so the chart shifting under data changes cannot cause flicker); tables adapt to narrow screens (compact padding/font and name ellipsis below 640px of content width, horizontal scroll as last resort on very narrow viewports). Usage auto-refreshes every 10s, balance every 60s |
 | **Produced-file Tab Preview** | Click a produced-file chip in the conversation tail (internally dispatches a `dsh:produced-open` event) → opens in the right panel as **browser-style tabs**: open multiple products, click a tab to switch, close individually; renders: **images** (base64), **Markdown** (headings/tables/images/lists/code blocks/quotes), **HTML** (sandboxed iframe), **code/log** (monospace text). The panel defaults to half of the width beside the sidebar; drag the divider to resize (no shell 520px cap) |
-| **Details segments (Produced / Team)** | The right panel hosts **📦 Produced / 👥 Team** segments (both with `aria-pressed`): Team is shown by default when the bar opens; opening a produced file auto-switches to the Produced segment and opens the bar; clicking a produced tab returns to preview. The **Team segment renders the child seat `details.produced.team`** (content injected by the companion dsh-badgeboard plugin; a placeholder is shown when it is not installed) |
+| **Details produced panel** | The right `details` panel is the produced-file preview panel: the empty-state hint shows when the bar opens; clicking a produced file auto-opens the bar and its tab; clicking a produced tab switches the preview |
 | **Image auto-recognition** | In text-only-model conversations, images sent by the user are automatically recognized by the configured vision model (**structured description**: overview / text transcription / charts & data / UI layout / key details / conclusion points), injected into the conversation as text; same-image short-term caching avoids repeated vision API calls; on failure it degrades to a placeholder without blocking the conversation |
 | **Deep phrase pool** | The generating-status line picks uniformly at random from 60 "Deep xxx…" phrases (no immediate repeats), one fixed phrase per status element (re-picked for new elements/sessions), with a gradient shimmer animation |
 | **@file mentions** | Typing `@` in the composer triggers workspace file fuzzy search (prefix/contains/fuzzy match; ignores `node_modules`, `.git` and dot-prefixed entries; directory traversal depth ≤ 5), inserting `@path ` on pick; the model reads the file itself |
@@ -87,10 +87,10 @@ Static plugins don't rely on the dynamic runner's `harness.handle` / `host.call`
 
 > This matches the community plugin @linxin666/dsh-client-ui-aionui-panel (prefix routes via `dsh-host-webserver`) — the standard way for DSH static UI plugins to exchange data between host and client.
 
-### Cross-package contract (with dsh-badgeboard)
+### External contract
 
-- **`details` child-seat declaration**: when registering the `details` slot (id `produced`, priority -1), the produced panel declares the child seat `details.produced.team` (`{ kind: 'single', scope: 'session' }`); the Team segment renders it via `renderSlot('details.produced.team', {})`, and the companion plugin dsh-badgeboard injects its team badgeboard through `slots.inject('details.produced.team')` + `slots.register`.
-- **Details open-state/width exposure**: when the produced panel opens the bar it sets `data-dsh-wide`, `data-dsh-details-open` and the CSS variables `--dsh-sidebar-px` / `--dsh-details-px` / `--dsh-handle-left` on the shell frame (the parent of `[data-shell-overlay]`), and sets `data-dragging` while the divider is being dragged; companion plugins (e.g. dsh-badgeboard's mid-rail) use these to sense the details open state and width.
+- **Details open-state/width exposure**: when the produced panel opens the bar it sets `data-dsh-wide`, `data-dsh-details-open` and the CSS variables `--dsh-sidebar-px` / `--dsh-details-px` / `--dsh-handle-left` on the shell frame (the parent of `[data-shell-overlay]`), and sets `data-dragging` while the divider is being dragged; other plugins can use these to sense the details open state and width.
+- **Produced-open event**: produced-file chips in the conversation tail dispatch a `dsh:produced-open` event on `window` (`detail` = file path); this panel listens and opens the bar to preview. Other plugins can dispatch the same event to reuse the produced-preview capability.
 
 ## 🛠 Development
 
@@ -140,10 +140,9 @@ Key points:
 
 ## ⚠️ Notes
 
-- The shell's `details` slot was occupied by the "tool details panel"; this plugin (slot id `produced`) replaces it with the Produced/Team segmented panel. Team is shown by default when the bar opens; opening a produced file auto-switches to the Produced segment.
+- The shell's `details` slot was occupied by the "tool details panel"; this plugin (slot id `produced`) replaces it with the produced-file preview panel.
 - Produced-file reads fall back across `workspaceRoot`, all live sessions' `cwd` and persisted session headers' `cwd`, so cross-workspace works; `..` traversal is rejected.
 - The panel width is driven by CSS variables + `!important` (`data-dsh-wide` / `data-dsh-details-open` expose the open state); closing the panel restores the shell default. Drag takeover has no 520px cap.
-- The Team segment content is provided by the companion plugin dsh-badgeboard; without it a placeholder ("Team badgeboard not loaded (badgeboard plugin not running)") is shown.
 - Balance query needs `DEEPSEEK_API_KEY` configured (credentials), otherwise the card shows "API Key not configured".
 
 ## 📄 License

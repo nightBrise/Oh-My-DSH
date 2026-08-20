@@ -10,9 +10,9 @@ DSH(DeepSeek Harness)**Web GUI 增强插件**:在不改 DSH 源码的前提下,�
 
 | 功能 | 说明 |
 | --- | --- |
-| **Token 用量** | 对话页顶部新增「Token 用量」Tab:双环形图(供应商/模型占比)、供应商明细表(含合计行)、当前工作区会话用量表(点击行打开对应会话)、当前会话上下文测量(上下文/压力 tokens)、余额/配额卡片(DeepSeek 实时查询,服务端 55s 缓存、前端每 60s 刷新;小米/通义跳转控制台)、近 30 天/当月每日用量堆叠图(悬停某天时明细表、环形图与会话表联动切换为当天数据,附悬浮窗);用量每 10s、余额每 60s 自动刷新 |
+| **Token 用量** | 对话页顶部新增「Token 用量」Tab:双环形图(供应商/模型占比)、供应商明细表(含合计行)、当前工作区会话用量表(点击行打开对应会话)、当前会话上下文测量(上下文/压力 tokens)、余额/配额卡片(DeepSeek 实时查询,服务端 55s 缓存、前端每 60s 刷新;小米/通义跳转控制台)、近 30 天/当月每日用量堆叠图(悬停某天时明细表、环形图与会话表联动切换为当天数据,附悬浮窗;悬停基于进入时捕获的固定锚区判定,图表随数据切换位移也不会闪烁);表格窄屏自适应(内容区 < 640px 时小内边距/小字号、长名称省略号,极窄时横向滚动兜底);用量每 10s、余额每 60s 自动刷新 |
 | **产物标签预览** | 点击对话尾部产物 chip(内部派发 `dsh:produced-open` 事件)→ 右侧面板以**浏览器式标签卡片**打开:可同时开多个产物、点击卡片切换、单个关闭;渲染:**图片**(base64)、**Markdown**(标题/表格/图片/列表/代码块/引用)、**HTML**(iframe 沙箱)、**代码/日志**(等宽文本)。面板默认占除侧栏外一半宽度,拖动分隔条可调(无壳层 520px 上限) |
-| **详情栏分段(产物 / 团队)** | 右侧栏面板带「📦 产物 / 👥 团队」两个分段(均带 `aria-pressed`):竖条开栏默认显示团队,打开产物时自动切到产物分段并开栏,点击产物 tab 可切回预览。**团队分段渲染子座位 `details.produced.team`**(配套插件 dsh-badgeboard 注入内容,未安装时显示占位提示) |
+| **详情栏产物面板** | 右侧栏 `details` 面板为产物预览面板:竖条开栏默认显示空态提示,点击对话中的产物自动开栏并打开对应标签,点击产物 tab 切换预览 |
 | **图片自动识别** | 文字模型对话中,用户发送的图片自动调用配置的视觉模型(**结构化描述**:总体/文字转录/图表数据/界面布局/关键细节/结论要点),以文本注入对话;同图短时缓存,不重复调用;识别失败降级提示不阻塞对话 |
 | **Deep 文案池** | 生成状态行文案从 60 条 "Deep xxx…" 均匀随机(避免连续重复),每个状态元素独立固定一个文案(换元素/会话时换词),带渐变 shimmer 动画 |
 | **@文件提及** | 输入框 `@` 触发工作区文件模糊搜索(前缀/包含/模糊匹配,忽略 `node_modules`、`.git` 与点开头条目,目录遍历深度 ≤ 5),选择后插入 `@路径 `,模型自行读取 |
@@ -87,10 +87,10 @@ dsh-webui-enhance/
 
 > 该通信模式与社区 @linxin666/dsh-client-ui-aionui-panel 一致(经 `dsh-host-webserver` 注册前缀路由),是 DSH 静态 UI 插件在 host/client 之间传数据的标准做法。
 
-### 跨包契约(配套 dsh-badgeboard)
+### 对外契约
 
-- **details 子座位声明**:产物面板注册 `details` 槽(id `produced`,priority -1)时声明子座位 `details.produced.team`(`{ kind: 'single', scope: 'session' }`);「团队」分段通过 `renderSlot('details.produced.team', {})` 渲染,配套插件 dsh-badgeboard 以 `slots.inject('details.produced.team')` + `slots.register` 注入团队工牌面板。
-- **details 开合与宽度暴露**:产物面板开栏时在壳层 frame(`[data-shell-overlay]` 的父元素)上设置 `data-dsh-wide`、`data-dsh-details-open` 及 CSS 变量 `--dsh-sidebar-px` / `--dsh-details-px` / `--dsh-handle-left`,拖拽分隔条时同步打 `data-dragging`;配套插件(如 dsh-badgeboard 的中栏 rail)据此感知 details 开合状态与宽度。
+- **details 开合与宽度暴露**:产物面板开栏时在壳层 frame(`[data-shell-overlay]` 的父元素)上设置 `data-dsh-wide`、`data-dsh-details-open` 及 CSS 变量 `--dsh-sidebar-px` / `--dsh-details-px` / `--dsh-handle-left`,拖拽分隔条时同步打 `data-dragging`;其他插件可据此感知 details 开合状态与宽度。
+- **产物打开事件**:对话尾部产物 chip 通过 `window` 派发 `dsh:produced-open` 事件(`detail` = 文件路径),本面板监听并开栏预览;其他插件派发同名事件即可复用产物预览能力。
 
 ## 🛠 开发
 
@@ -139,10 +139,9 @@ Cordis 工具页的「Web UI 改造 Demo」调试面板(`tool.view.cordis` 槽,k
 
 ## ⚠️ 注意事项
 
-- 右侧栏 `details` 槽原被壳层「工具详情面板」占用,本插件(槽 id `produced`)注册后由「产物 / 团队」分段面板替代;竖条开栏默认显示团队分段,打开产物时自动切到产物分段;
+- 右侧栏 `details` 槽原被壳层「工具详情面板」占用,本插件(槽 id `produced`)注册后由产物预览面板替代;
 - 产物文件读取基于 `workspaceRoot` + 全部活跃会话 `cwd` + 持久化会话头 `cwd` 多根回退,跨工作区可用;`..` 路径穿越被拦截;
 - 面板列宽由 CSS 变量 + `!important` 接管(`data-dsh-wide` / `data-dsh-details-open` 暴露开合状态),关闭面板时自动恢复壳层默认;拖拽接管无 520px 上限;
-- 「团队」分段内容由配套插件 dsh-badgeboard 提供,未安装时显示"团队工牌面板未加载(badgeboard 插件未运行)"占位提示;
 - 余额查询需要配置 `DEEPSEEK_API_KEY`(credentials),否则余额卡片显示"未配置 API Key"。
 
 ## 📄 License

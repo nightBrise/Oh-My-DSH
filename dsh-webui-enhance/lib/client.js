@@ -329,11 +329,9 @@ window.__ModuleLoader__.load({
       return els
     }
     const ProducedPanel = (props) => {
-      const renderSlot = props && props.renderSlot
       const [tabs, setTabs] = React.useState([])
       const [active, setActive] = React.useState(null)
       const [busy, setBusy] = React.useState(false)
-      const [pane, setPane] = React.useState('team')
       React.useEffect(() => {
         const applyWide = () => {
           try {
@@ -359,7 +357,6 @@ window.__ModuleLoader__.load({
           const path = e && e.detail
           if (typeof path !== 'string' || !path) return
           setBusy(true)
-          setPane('produced')
           const layout = ctx.get('layout')
           if (layout && typeof layout.openDetails === 'function') {
             try {
@@ -465,8 +462,6 @@ window.__ModuleLoader__.load({
       }
       const current = tabs.find((t) => t.key === active) || null
       const file = current ? current.file : null
-      // 视图规则：显式切到"团队"或没有任何产物 tab 时显示团队分段（竖条开栏默认即团队）
-      const view = (pane === 'team' || tabs.length === 0) ? 'team' : 'produced'
       const base = String((current && current.path) || '')
       const name = base.split('/').pop() || base
       const head = {
@@ -501,20 +496,7 @@ window.__ModuleLoader__.load({
         marginRight: 44,
       }
       let content = null
-      if (view === 'team') {
-        // 团队分段：渲染 badgeboard 插件注册的 details.produced.team 子座位
-        let node = null
-        try {
-          node = typeof renderSlot === 'function' ? renderSlot('details.produced.team', {}) : null
-        } catch (err) {
-          node = null
-        }
-        content = React.createElement('div', { style: { height: '100%', minWidth: 0 } },
-          node === null || node === undefined
-            ? React.createElement('p', { style: { color: 'var(--dsw-alias-label-tertiary,#999)', fontSize: 14 } }, '\u56E2\u961F\u5DE5\u724C\u9762\u677F\u672A\u52A0\u8F7D\uFF08badgeboard \u63D2\u4EF6\u672A\u8FD0\u884C\uFF09')
-            : node,
-        )
-      } else if (busy && !current) {
+      if (busy && !current) {
         content = React.createElement('p', { style: { color: 'var(--dsw-alias-label-tertiary,#999)', fontSize: 15 } }, '\u52A0\u8F7D\u4E2D\u2026')
       } else if (!current) {
         content = React.createElement('p', { style: { color: 'var(--dsw-alias-label-tertiary,#999)', fontSize: 15 } }, '\u70B9\u51FB\u5BF9\u8BDD\u4E2D\u7684\u4EA7\u7269\u4EE5\u5728\u6B64\u9884\u89C8')
@@ -571,18 +553,10 @@ window.__ModuleLoader__.load({
       return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0 } },
         React.createElement('div', { style: head },
           React.createElement('div', { style: { display: 'flex', gap: 6, flex: 'none', paddingBottom: 10 } },
-            React.createElement('button', {
-              onClick: () => { if (tabs.length > 0) setPane('produced') },
-              style: view === 'produced' ? tabActive : tabBase,
-              title: '\u5207\u6362\u5230\u4EA7\u7269\u9884\u89C8',
-              'aria-pressed': view === 'produced',
+            React.createElement('span', {
+              style: { ...tabActive, cursor: 'default' },
+              title: '\u4EA7\u7269\u9884\u89C8',
             }, '\uD83D\uDCE6 \u4EA7\u7269'),
-            React.createElement('button', {
-              onClick: () => setPane('team'),
-              style: view === 'team' ? tabActive : tabBase,
-              title: '\u5207\u6362\u5230\u56E2\u961F\u5DE5\u724C\u9762\u677F',
-              'aria-pressed': view === 'team',
-            }, '\uD83D\uDC65 \u56E2\u961F'),
           ),
           React.createElement('div', { style: tabbar },
             tabs.length === 0
@@ -592,7 +566,7 @@ window.__ModuleLoader__.load({
                   const isActive = t.key === active
                   return React.createElement('div', {
                     key: t.key,
-                    onClick: () => { setActive(t.key); setPane('produced') },
+                    onClick: () => setActive(t.key),
                     style: isActive ? tabActive : tabBase,
                     title: t.path,
                   },
@@ -611,7 +585,7 @@ window.__ModuleLoader__.load({
       )
     }
     ctx.effect(() => slots.register(
-      { name: 'details', id: 'produced', priority: -1, children: { 'details.produced.team': { kind: 'single', scope: 'session' } } },
+      { name: 'details', id: 'produced', priority: -1 },
       ProducedPanel,
     ), 'dsh-webui-enhance: details')
 
@@ -657,6 +631,7 @@ window.__ModuleLoader__.load({
           }
         }
         React.useEffect(() => {
+          setHoverIdx(null)
           refresh()
           const id = setInterval(() => refresh(), 10000)
           return () => clearInterval(id)
@@ -666,6 +641,25 @@ window.__ModuleLoader__.load({
           const id = setInterval(() => refreshBalance(), 60000)
           return () => clearInterval(id)
         }, [])
+        // 窄屏自适应:内容区 < 640px 时压缩表格(小内边距/小字号/名称列省略号),
+        // 让宽表在 9:16 竖屏下尽量完整可见;极窄时由 overflowX 横向滚动兜底。
+        const pageRef = React.useRef(null)
+        const [narrow, setNarrow] = React.useState(false)
+        React.useEffect(() => {
+          const el = pageRef.current
+          if (!el || typeof ResizeObserver !== 'function') return
+          const ro = new ResizeObserver((entries) => {
+            for (const en of entries) {
+              const w = en && en.contentRect ? en.contentRect.width : 0
+              if (w > 0) setNarrow(w < 640)
+            }
+          })
+          ro.observe(el)
+          return () => ro.disconnect()
+        }, [])
+        const tCell = { ...cell, padding: narrow ? '4px 5px' : '5px 8px', fontSize: narrow ? 11 : 12 }
+        const tCellL = { ...tCell, textAlign: 'left' }
+        const ellip = (max) => ({ maxWidth: narrow ? max : undefined, overflow: 'hidden', textOverflow: 'ellipsis' })
 
         const rows = (data && data.rows) || []
         const providers = (data && data.providers) || []
@@ -820,13 +814,53 @@ window.__ModuleLoader__.load({
             }),
           ]
         }
-        const onChartMove = (e) => {
-          const rect = e.currentTarget.getBoundingClientRect()
-          if (!rect || rect.width === 0 || daily.length === 0) return
-          const svgX = ((e.clientX - rect.left) / rect.width) * 400
+        // 悬停锚定:进入图表时捕获一次 rect 作为"锚",存续期间用锚(固定区域)判定鼠标是否离开,
+        // 而不是用实时元素位置——hover 会让上方表格切换为当天数据、图表随之位移,
+        // 若以实时位置判定会形成 移出→清除→移回→触发 的无限闪烁循环。
+        const hoverAnchorRef = React.useRef(null)
+        const updateHoverFromAnchor = (clientX) => {
+          const a = hoverAnchorRef.current
+          if (!a || a.width === 0 || daily.length === 0) return
+          const svgX = ((clientX - a.left) / a.width) * 400
           const i = Math.floor((svgX - AX) / dayW)
           setHoverIdx(Math.max(0, Math.min(daily.length - 1, i)))
         }
+        const onChartEnter = (e) => {
+          if (daily.length === 0) return
+          const rect = e.currentTarget.getBoundingClientRect()
+          if (!rect || rect.width === 0) return
+          hoverAnchorRef.current = {
+            left: rect.left,
+            right: rect.left + rect.width,
+            top: rect.top,
+            bottom: rect.top + rect.height,
+            width: rect.width,
+          }
+          updateHoverFromAnchor(e.clientX)
+        }
+        React.useEffect(() => {
+          if (hoverIdx === null) return
+          const PAD = 28
+          const onDocMove = (e) => {
+            const a = hoverAnchorRef.current
+            if (!a) return
+            if (e.clientX < a.left - PAD || e.clientX > a.right + PAD || e.clientY < a.top - PAD || e.clientY > a.bottom + PAD) {
+              setHoverIdx(null)
+              return
+            }
+            updateHoverFromAnchor(e.clientX)
+          }
+          const onScroll = () => { setHoverIdx(null) }
+          const onResize = () => { setHoverIdx(null) }
+          document.addEventListener('mousemove', onDocMove)
+          window.addEventListener('scroll', onScroll, true)
+          window.addEventListener('resize', onResize)
+          return () => {
+            document.removeEventListener('mousemove', onDocMove)
+            window.removeEventListener('scroll', onScroll, true)
+            window.removeEventListener('resize', onResize)
+          }
+        }, [hoverIdx])
         const segBtn = (active) => ({
           border: '1px solid rgba(128,128,128,0.4)',
           background: active ? 'rgba(59,130,246,0.25)' : 'transparent',
@@ -848,7 +882,7 @@ window.__ModuleLoader__.load({
         const h3 = { fontSize: 13, fontWeight: 600, margin: '0 0 6px' }
         const sub = { fontSize: 12, color: 'var(--dsw-alias-label-tertiary, #999)', margin: 0 }
         const statCard = { display: 'flex', flexDirection: 'column', gap: 2, border: '1px solid rgba(128,128,128,0.25)', borderRadius: 8, padding: '8px 14px', minWidth: 88 }
-        return React.createElement('div', { style: page },
+        return React.createElement('div', { style: page, ref: pageRef },
           React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' } },
             React.createElement('h2', { style: h2 }, '\u26A1 Token \u7528\u91CF'),
             React.createElement('span', { style: sub }, '\u8BB0\u5F55\u6301\u4E45\u5316: ~/.dsh/dsh-usage/usage-records.json' ),
@@ -906,57 +940,60 @@ window.__ModuleLoader__.load({
             React.createElement('h3', { style: h3 }, hovered ? '\u4F9B\u5E94\u5546\u660E\u7EC6(' + labelOf(hovered.label) + ')' : '\u4F9B\u5E94\u5546\u660E\u7EC6'),
             viewRows.length === 0
               ? React.createElement('p', { style: sub }, hovered ? '\u5F53\u5929\u65E0\u8BB0\u5F55' : '\u8FD8\u6CA1\u6709\u8BB0\u5F55')
-              : React.createElement('table', { style: { borderCollapse: 'collapse', width: '100%' } },
+              : React.createElement('div', { style: { overflowX: 'auto' } },
+                  React.createElement('table', { style: { borderCollapse: 'collapse', width: '100%' } },
                   React.createElement('thead', null,
                     React.createElement('tr', null,
-                      React.createElement('th', { style: cellL }, '\u4F9B\u5E94\u5546'),
-                      React.createElement('th', { style: cellL }, '\u6A21\u578B'),
-                      React.createElement('th', { style: cell }, '\u6B21\u6570'),
-                      React.createElement('th', { style: cell }, '\u8F93\u5165'),
-                      React.createElement('th', { style: cell }, '\u8F93\u51FA'),
-                      React.createElement('th', { style: cell }, '\u7F13\u5B58\u8BFB'),
-                      React.createElement('th', { style: cell }, '\u63A8\u7406'),
-                      React.createElement('th', { style: cell }, '\u547D\u4E2D\u7387'),
+                      React.createElement('th', { style: { ...tCellL, ...ellip(84) } }, '\u4F9B\u5E94\u5546'),
+                      React.createElement('th', { style: { ...tCellL, ...ellip(84) } }, '\u6A21\u578B'),
+                      React.createElement('th', { style: tCell }, '\u6B21\u6570'),
+                      React.createElement('th', { style: tCell }, '\u8F93\u5165'),
+                      React.createElement('th', { style: tCell }, '\u8F93\u51FA'),
+                      React.createElement('th', { style: tCell }, '\u7F13\u5B58\u8BFB'),
+                      React.createElement('th', { style: tCell }, '\u63A8\u7406'),
+                      React.createElement('th', { style: tCell }, '\u547D\u4E2D\u7387'),
                     ),
                   ),
                   React.createElement('tbody', null,
                     viewRows.map((r) => React.createElement('tr', { key: r.provider + '::' + r.model },
-                      React.createElement('td', { style: { ...cellL, fontWeight: 600 } }, r.provider),
-                      React.createElement('td', { style: cellL }, r.model),
-                      React.createElement('td', { style: cell }, r.calls),
-                      React.createElement('td', { style: cell }, fmt(r.input)),
-                      React.createElement('td', { style: cell }, fmt(r.output)),
-                      React.createElement('td', { style: cell }, fmt(r.cacheRead)),
-                      React.createElement('td', { style: cell }, fmt(r.reasoning)),
-                      React.createElement('td', { style: cell }, r.hitRate + '%'),
+                      React.createElement('td', { style: { ...tCellL, fontWeight: 600, ...ellip(84) }, title: r.provider }, r.provider),
+                      React.createElement('td', { style: { ...tCellL, ...ellip(84) }, title: r.model }, r.model),
+                      React.createElement('td', { style: tCell }, r.calls),
+                      React.createElement('td', { style: tCell }, fmt(r.input)),
+                      React.createElement('td', { style: tCell }, fmt(r.output)),
+                      React.createElement('td', { style: tCell }, fmt(r.cacheRead)),
+                      React.createElement('td', { style: tCell }, fmt(r.reasoning)),
+                      React.createElement('td', { style: tCell }, r.hitRate + '%'),
                     )),
                     React.createElement('tr', { key: '__total' },
-                      React.createElement('td', { style: { ...cellL, fontWeight: 700 } }, '\u5408\u8BA1'),
-                      React.createElement('td', { style: cellL }),
-                      React.createElement('td', { style: { ...cell, fontWeight: 700 } }, viewTotals.calls),
-                      React.createElement('td', { style: { ...cell, fontWeight: 700 } }, fmt(viewTotals.input)),
-                      React.createElement('td', { style: { ...cell, fontWeight: 700 } }, fmt(viewTotals.output)),
-                      React.createElement('td', { style: { ...cell, fontWeight: 700 } }, fmt(viewTotals.cacheRead)),
-                      React.createElement('td', { style: { ...cell, fontWeight: 700 } }, fmt(viewTotals.reasoning)),
-                      React.createElement('td', { style: { ...cell, fontWeight: 700 } }, viewTotals.hitRate + '%'),
+                      React.createElement('td', { style: { ...tCellL, fontWeight: 700 } }, '\u5408\u8BA1'),
+                      React.createElement('td', { style: tCellL }),
+                      React.createElement('td', { style: { ...tCell, fontWeight: 700 } }, viewTotals.calls),
+                      React.createElement('td', { style: { ...tCell, fontWeight: 700 } }, fmt(viewTotals.input)),
+                      React.createElement('td', { style: { ...tCell, fontWeight: 700 } }, fmt(viewTotals.output)),
+                      React.createElement('td', { style: { ...tCell, fontWeight: 700 } }, fmt(viewTotals.cacheRead)),
+                      React.createElement('td', { style: { ...tCell, fontWeight: 700 } }, fmt(viewTotals.reasoning)),
+                      React.createElement('td', { style: { ...tCell, fontWeight: 700 } }, viewTotals.hitRate + '%'),
                     ),
                   ),
                 ),
+              ),
           ),
           React.createElement('div', null,
             React.createElement('h3', { style: h3 }, hovered ? '\u5F53\u524D\u5DE5\u4F5C\u533A\u4F1A\u8BDD\u7528\u91CF(' + labelOf(hovered.label) + ')' : '\u5F53\u524D\u5DE5\u4F5C\u533A\u4F1A\u8BDD\u7528\u91CF' + (currentWs ? ' (' + currentWs.title + ')' : '')),
             viewSessionRows.length === 0
               ? React.createElement('p', { style: sub }, hovered ? '\u5F53\u5929\u8BE5\u5DE5\u4F5C\u533A\u65E0\u8BB0\u5F55' : '\u672C\u5DE5\u4F5C\u533A\u4F1A\u8BDD\u6682\u65E0\u8BB0\u5F55')
-              : React.createElement('table', { style: { borderCollapse: 'collapse', width: '100%' } },
+              : React.createElement('div', { style: { overflowX: 'auto' } },
+                  React.createElement('table', { style: { borderCollapse: 'collapse', width: '100%' } },
                   React.createElement('thead', null,
                     React.createElement('tr', null,
-                      React.createElement('th', { style: cellL }, '\u4F1A\u8BDD'),
-                      React.createElement('th', { style: cell }, '\u6B21\u6570'),
-                      React.createElement('th', { style: cell }, '\u8F93\u5165'),
-                      React.createElement('th', { style: cell }, '\u8F93\u51FA'),
-                      React.createElement('th', { style: cell }, '\u7F13\u5B58\u8BFB'),
-                      React.createElement('th', { style: cell }, '\u63A8\u7406'),
-                      React.createElement('th', { style: cell }, '\u547D\u4E2D\u7387'),
+                      React.createElement('th', { style: { ...tCellL, ...ellip(96) } }, '\u4F1A\u8BDD'),
+                      React.createElement('th', { style: tCell }, '\u6B21\u6570'),
+                      React.createElement('th', { style: tCell }, '\u8F93\u5165'),
+                      React.createElement('th', { style: tCell }, '\u8F93\u51FA'),
+                      React.createElement('th', { style: tCell }, '\u7F13\u5B58\u8BFB'),
+                      React.createElement('th', { style: tCell }, '\u63A8\u7406'),
+                      React.createElement('th', { style: tCell }, '\u547D\u4E2D\u7387'),
                     ),
                   ),
                   React.createElement('tbody', null,
@@ -968,17 +1005,18 @@ window.__ModuleLoader__.load({
                         onClick: () => { if (sessionsSvc) sessionsSvc.open(r.sessionId) },
                         style: { cursor: 'pointer' },
                       },
-                        React.createElement('td', { style: { ...cellL, fontWeight: 600 } }, title),
-                        React.createElement('td', { style: cell }, r.calls),
-                        React.createElement('td', { style: cell }, fmt(r.input)),
-                        React.createElement('td', { style: cell }, fmt(r.output)),
-                        React.createElement('td', { style: cell }, fmt(r.cacheRead)),
-                        React.createElement('td', { style: cell }, fmt(r.reasoning)),
-                        React.createElement('td', { style: cell }, r.hitRate + '%'),
+                        React.createElement('td', { style: { ...tCellL, fontWeight: 600, ...ellip(96) }, title: title }, title),
+                        React.createElement('td', { style: tCell }, r.calls),
+                        React.createElement('td', { style: tCell }, fmt(r.input)),
+                        React.createElement('td', { style: tCell }, fmt(r.output)),
+                        React.createElement('td', { style: tCell }, fmt(r.cacheRead)),
+                        React.createElement('td', { style: tCell }, fmt(r.reasoning)),
+                        React.createElement('td', { style: tCell }, r.hitRate + '%'),
                       )
                     }),
                   ),
                 ),
+              ),
           ),
           React.createElement('div', { style: { border: '1px solid rgba(128,128,128,0.25)', borderRadius: 10, padding: '10px 12px' } },
             React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 } },
@@ -992,8 +1030,7 @@ window.__ModuleLoader__.load({
                 width: '100%',
                 viewBox: '0 0 400 120',
                 style: { display: 'block' },
-                onMouseMove: onChartMove,
-                onMouseLeave: () => setHoverIdx(null),
+                onMouseEnter: onChartEnter,
               },
                 React.createElement('defs', { key: 'defs' },
                   React.createElement('linearGradient', { id: 'dynAreaGrad', x1: 0, y1: 0, x2: 0, y2: 1 },
@@ -1023,7 +1060,7 @@ window.__ModuleLoader__.load({
                   position: 'absolute',
                   top: 0,
                   width: 340,
-                  maxWidth: 380,
+                  maxWidth: 'calc(100% - 8px)',
                   ...tipPos,
                   transform: tipXform,
                   pointerEvents: 'none',
