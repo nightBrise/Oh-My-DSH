@@ -652,14 +652,21 @@ modelOverrides: {}                # 可选：dream/writer 指定 provider/model�
 | D21 | notes.md 重置为模板（Mimo 语义：每条内容都经过判断，无论是否路由）；不设 tasks/ 目录（DSH 无 task 工具，任务树取自 todo/write 快照） | 与 Mimo 语义一致；消除无来源的目录结构（§12 审查发现） |
 | D22 | v1 **不提供记忆专用读写工具**（memory_search/memory_read/notes_append）：记忆文件在项目内，DSH 原生 read/grep/glob/write/edit + 写门已覆盖；只保留模型无法替代的 history_search/history_around/dream_now | 功能不大于实用（F-01）：砍掉 FTS 索引与配套复杂度，模型经 reminder 指引使用原生工具 |
 | D23 | v1 checkpoint 预算超限用**截断 + truncated 标记**（非 spillover 拆分）；校验-重试限 1 次；最终阈值用简化步进重试（非精确 gate） | 超限/失败是小概率事件，截断 + History 兜底够用；spillover 与精确 gate 留 v2（F-02/F-03） |
+| D24 | **2026-08-20 P0 修复**：memoryFs 全部写入显式传 `{mode:'workspace-write', workspaceRoot: projectRoot}` | 实测 denial（`file access denied under workspace-write mode`）：agentless 调用的策略回退根≠项目根，默认解析被拒；§2.9/R1 设计本意落地（fs 契约第 5 参数运行时核实存在） |
+| D25 | **2026-08-20 子代理过滤**：`header.origin==='subagent' \|\| delegationDepth>0` 的会话不参与记忆（不缓冲/不 checkpoint/不 reminder/dump；dream 拒绝子代理触发）；写门对子代理模型写仍生效 | mimo servesCheckpoint 对应物；实测 27 个会话目录 20 个是子代理噪音（3/4 writer 调用浪费）；字段持久化于 header（与 DSH 原生 subagent 判定同字段，dsh-subagent childSessionMeta 单一 stamp 点覆盖 spawn+fork） |
+| D26 | **2026-08-20 协议注入拍板 ④c**：内存协议用 `systemPrompt.section()` 程序化注册（常驻、动态条件），不写 AGENTS.md（原生 dsh-agent-instructions 注入机制保留给用户/跨工具共享场景，README 文档化） | 护栏文本需常驻可见（mimo 同款系统提示词协议）；AGENTS.md 是用户拥有的文件，插件托管区块有冲突面 |
+| D27 | **2026-08-20 原生重叠全量审计**：遍历 160+ `@deepseek-ai` 包 + base composition 挂载表——DSH 原生**无任何跨会话/项目级记忆**；易混淆项澄清：`dsh-session-checkpoint-policy` 是持久化落盘检查点（非内容记忆）、`dsh-agent-instructions` 是静态 AGENTS.md 注入、`sessionQuery`/SQLite FTS 是原始日志检索、原生压缩摘要是单会话内浓缩。全部优化方向的机制复用原生 API（fs/sandboxPolicy/systemPrompt/agent/session-start/sessionQuery/agents.header），无一需改 DSH 核心 | 不重复造轮子（用户指令）；审计结论写入 README 安装节与本报告 |
 
 ## 11. 迭代路径
 
 - **v0.1** ✅ 已完成（2026-08-17）：存储层 + 项目锚点 + 写门（tools/pre-execute）+ 最简 checkpoint（阈值阶梯 + 事件缓冲 + llm 提取 + 单次校验）+ recall reminder（动态注入）+ 机制探针（V-01/02/04/06 全部 ✅）；实测：写门拦截/放行、reminder 跨会话召回、writer 输出质量（逐字引用/KEEP 协议两次写入确认）
 - **v0.2** ✅ 已完成（2026-08-17）：压缩联动（compaction/end dump 注入端到端 ✅ + compaction/start 兜底 + 压缩失败跳过注入 IM-07）+ 校验反射重试 + 空输出重试 + 测量兜底（F-05）+ 写门 CONFIG 化 + writer 全局并发上限 + pre-step 探针（V-05 部分 ✅：payload 结构确认、并列监听不干扰；"压缩结果可读性"待真实压缩时观察）
-- **v0.3**：Dream（手动 + opt-in auto，验证阶段移植）+ `history_search`/`history_around` + dream.log + **真实项目试用**（跨项目隔离观察，Super-Resolution-Simulation）
-- **v1.0**：配置化（settings）、异常路径打磨
-- **稳定后**：建包/预设（自动挂载、重启自恢复）→ v2（spillover、memory_search FTS、Distill、GUI 面板、Global 层可选、系统会话形态的 dream、expectedRevisions 指令追踪、watermark 完整实现、per-session 豁免）
+- **v0.3** ✅ 已完成（2026-08-18）：Dream 手动（`dream_now` 工具 + `/dream` 命令，llm 整合 + 原子写回 + 路径存在性验证 + 行数/KB 预算 + dream.log）+ `history_search`/`history_around`（sessionQuery 索引 + 持久化日志降级）+ **真实项目试用**（Oh-My-DSH 本仓，跨项目隔离待观察）
+- **v1.0** ✅ 已完成（2026-08-18）：配置化（`.dsh-memory/settings.json` + `memory_config` 工具 + `/dshmem-config` 命令）、异常路径打磨
+- **建包/预设** ✅ 已完成（2026-08-17 → 2026-08-20 修复）：正式包 `dsh-memory`，profile bundle 安装（`~/.dsh/profiles/web` pnpm 副本，非 symlink）
+- **v1.1 P0** ✅ 已完成（2026-08-20）：① memoryFs 全部写入显式 `sandboxPolicy`（修 agentless 回退根≠项目根导致的 denial，D24）② 子代理会话过滤（`origin/delegationDepth` 不参与记忆，D25）。**双路径实测通过**：settings 写入 + 20% 阈值 checkpoint 落盘成功；子代理 `b41b5cda` 事件流过但零目录零注入
+- **v1.2**：dump 扩展（notes + 最近用户输入逐字 + 章节感知截断）→ 协议注入 ④c（`systemPrompt.section`，D26）→ dream.auto（`agent/session-start` 钩子，opt-in）
+- **v2**（backlog）：spillover 拆分、dream 证据预取（sessionQuery FTS + fs.stat 验证 + `[unverified]`）、GC/归档（sessionQuery.listSessions 对账）、同 step dump（`agent/pre-step`）、settings 迁移官方服务、expectedRevisions 指令追踪、watermark 完整实现、per-session 豁免
 
 ## 12. 深度审查（2026-08-17，全文档）
 

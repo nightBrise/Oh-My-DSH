@@ -11,6 +11,7 @@ DSH 项目级跨会话记忆插件（动态插件迭代 → 正式包，设计�
 - **跨会话召回**：首条真人消息后（若项目确有记忆文件）注入 reminder（MEMORY.md 与最近会话 checkpoint 的精确路径），指示 agent 用 grep 定位记忆目录、用 `history_search` 查原文，不要重复询问。
 - **Dream 整合**：`/dream` 命令或 `dream_now` 工具 → 收集窗口内 checkpoint（`dream.windowDays`）→ llm 整合（`reasoningEffort: off`）→ 原子写回 `<memDir>/MEMORY.md`（快照比对防并发覆盖、路径存在性验证、行数/KB 预算）；每次运行摘要追加到 `dream.log`，`index.json` 更新 `lastDreamAt`/`dreamCount`。
 - **History 回溯**：`history_search`（sessionQuery 索引，禁用时退化为持久化日志扫描；支持 `sessionId`/`kind` 过滤；`limit` 10~50）+ `history_around`（seq 锚点上下文，`before`/`after` 5~20，20KB 输出上限）。
+- **子代理排除**：子代理会话（`header.origin='subagent'` 或 `delegationDepth>0`）不参与记忆——不缓冲、不触发 checkpoint、不注入 reminder/dump，`dream` 拒绝子代理触发；写门对子代理模型写 `.dsh-memory/` 的保护仍然生效。
 - **每项目配置**：`.dsh-memory/settings.json`（`memory_config` 工具 / `/dshmem-config` 命令）。
 - **写门保护**：agent 对 `.dsh-memory/` 的 `write`/`edit` 被拒绝，仅 `MEMORY.md` 与 `sessions/<sid>/notes.md` 可写（插件自有路径对 agent 只读）。
 - **旧版迁移**：首次触碰时，项目根下的 `MEMORY.md`（若存在）一次性复制到 `<memDir>/MEMORY.md`。
@@ -28,24 +29,26 @@ DSH 项目级跨会话记忆插件（动态插件迭代 → 正式包，设计�
 
 ## 安装（profile bundle）
 
-1. 本地包（或 npm 发布后改名依赖）：
+1. 在活跃 profile 的清单里声明本地包（或 npm 发布后改用包名依赖）：
    ```json
    // ~/.dsh/profiles/web/package.json
    { "dependencies": { "dsh-memory": "file:/path/to/dsh-memory" },
-     "dsh": { "profile": { "bundles": [..., "dsh-memory"] } } }
+     "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-memory"] } } }
    ```
-2. 建 flat symlink（bundle 解析机制：`$DSH_HOME/profiles/node_modules`）：
+2. 在 profile 目录安装——pnpm 会把 `file:` 依赖**复制**到 profile 自己的 `node_modules/dsh-memory`（加载器解析的就是这份副本）：
    ```bash
-   ln -sfn /path/to/dsh-memory ~/.dsh/profiles/node_modules/dsh-memory
+   cd ~/.dsh/profiles/web && pnpm install
    ```
-3. 包内依赖链接（peer `@deepseek-ai/dsh-tools` 从安装闭包解析）：
+   peer 依赖 `@deepseek-ai/dsh-tools` 自动解析：加载器 baseUrl 是 profile 目录，Node 父目录查找会到达 DSH 原生维护的 flat 回退目录 `~/.dsh/profiles/node_modules`（`dsh-app-boot` 为全部内置包维护软链），**无需任何手动依赖链接**。
+3. **仓库改动后**：重新同步副本，再重启 dsh（`file:` 依赖是安装时快照，不是活链接）：
    ```bash
-   mkdir -p /path/to/dsh-memory/node_modules/@deepseek-ai
-   ln -sfn <dsh-install>/node_modules/@deepseek-ai/dsh-tools /path/to/dsh-memory/node_modules/@deepseek-ai/dsh-tools
+   rm -rf ~/.dsh/profiles/web/node_modules/dsh-memory && cd ~/.dsh/profiles/web && pnpm install
    ```
-4. 重启 dsh 进程生效（动态插件版本随进程消失，勿与正式包并存）。
+4. 重启 dsh 进程生效（动态插件迭代版本随进程消失，勿与正式包并存）。
 
-> bundle 行由 `cordis.patch.yml` 声明（经 `dsh.bundle.patch` 接入）；后续 profile patch 层可按 id 处理（如 `- id: dsh-memory` 加 `disabled: true`）。
+> bundle 行由包内 `cordis.patch.yml` 声明（经 `dsh.bundle.patch` 接入）；后续 profile patch 层可按 id 处理（如 `- id: dsh-memory` 加 `disabled: true`）。
+>
+> 注意：`~/.dsh/profiles/node_modules` 是 DSH 原生自动维护的 flat 回退目录（只含内置依赖软链）。手工在那里放的 `dsh-memory` 软链是冗余的——profile 自己的 `node_modules` 在模块解析中优先——不要创建。
 
 ## 配置（`.dsh-memory/settings.json`）
 

@@ -11,6 +11,7 @@ Project-level cross-session memory plugin for DSH (evolved from the dynamic-plug
 - **Cross-session recall**: after the first human message (when the project has memory files), a reminder is injected with the exact memory-file paths (MEMORY.md + a recent session checkpoint), instructing the agent to grep the memory dir and use `history_search` instead of re-asking.
 - **Dream consolidation**: `/dream` command or `dream_now` tool → collect windowed checkpoints (`dream.windowDays`) → LLM consolidation (`reasoningEffort: off`) → atomic write-back to `<memDir>/MEMORY.md` (snapshot compare against concurrent edits, path-existence validation, line/KB budget); per-run summary appended to `dream.log`, `lastDreamAt`/`dreamCount` updated in `index.json`.
 - **History lookup**: `history_search` (sessionQuery index, falls back to persisted-log scan when disabled; `sessionId`/`kind` filters; `limit` 10–50) + `history_around` (seq-anchored context, `before`/`after` 5–20, 20KB output cap).
+- **Subagent exclusion**: subagent sessions (`header.origin='subagent'` or `delegationDepth>0`) do not participate in memory — no event buffering, no checkpoint triggering, no reminder/dump injection, and `dream` refuses subagent callers; the write gate still protects `.dsh-memory/` from subagent model writes.
 - **Per-project settings**: `.dsh-memory/settings.json` (`memory_config` tool / `/dshmem-config` command).
 - **Write gate**: agent `write`/`edit` targeting `.dsh-memory/` is denied except `MEMORY.md` and `sessions/<sid>/notes.md` (plugin-owned paths are agent-read-only).
 - **Legacy migration**: a root-level `MEMORY.md` (if present) is copied once into `<memDir>/MEMORY.md` on first touch.
@@ -28,24 +29,26 @@ Project-level cross-session memory plugin for DSH (evolved from the dynamic-plug
 
 ## Installation (profile bundle)
 
-1. Local package (or use the published npm name in dependencies):
+1. Declare the local package in the active profile's manifest (or use the published npm name):
    ```json
    // ~/.dsh/profiles/web/package.json
    { "dependencies": { "dsh-memory": "file:/path/to/dsh-memory" },
-     "dsh": { "profile": { "bundles": [..., "dsh-memory"] } } }
+     "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-memory"] } } }
    ```
-2. Create the flat symlink (bundle resolution: `$DSH_HOME/profiles/node_modules`):
+2. Install in the profile directory — pnpm **copies** the `file:` dependency into the profile's own `node_modules/dsh-memory` (this copy is the one the loader resolves):
    ```bash
-   ln -sfn /path/to/dsh-memory ~/.dsh/profiles/node_modules/dsh-memory
+   cd ~/.dsh/profiles/web && pnpm install
    ```
-3. In-package dependency link (peer `@deepseek-ai/dsh-tools` resolved from the install closure):
+   The peer `@deepseek-ai/dsh-tools` resolves automatically: the loader's baseUrl is the profile directory and Node's parent walk reaches DSH's flat module fallback `~/.dsh/profiles/node_modules`, which `dsh-app-boot` maintains with symlinks for every in-box package. No manual dependency links are needed.
+3. **After changing this repository**: re-sync the copy, then restart dsh (a `file:` dependency is a snapshot copy, not a live link):
    ```bash
-   mkdir -p /path/to/dsh-memory/node_modules/@deepseek-ai
-   ln -sfn <dsh-install>/node_modules/@deepseek-ai/dsh-tools /path/to/dsh-memory/node_modules/@deepseek-ai/dsh-tools
+   rm -rf ~/.dsh/profiles/web/node_modules/dsh-memory && cd ~/.dsh/profiles/web && pnpm install
    ```
-4. Restart the dsh process (the dynamic-plugin version disappears with the process; do not keep both).
+4. Restart the dsh process to activate (a dynamic-plugin iteration vanishes with the process; do not run it alongside the packaged one).
 
-> The bundle row is declared in `cordis.patch.yml` (wired via `dsh.bundle.patch`); later profile patch layers can address it by id (e.g. `- id: dsh-memory` with `disabled: true`).
+> The bundle row is declared by the package's `cordis.patch.yml` (wired via `dsh.bundle.patch`); later profile patch layers can target it by id (e.g. `- id: dsh-memory` with `disabled: true`).
+>
+> Note: `~/.dsh/profiles/node_modules` is a DSH-native, auto-maintained flat fallback (in-box dependency symlinks only). A manually placed `dsh-memory` symlink there is redundant — the profile's own `node_modules` wins module resolution — and should not be created.
 
 ## Configuration (`.dsh-memory/settings.json`)
 

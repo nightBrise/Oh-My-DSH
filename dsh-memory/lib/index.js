@@ -32,6 +32,11 @@ export function apply(ctx) {
     return res + out.join('/')
   }
   const isUnder = (child, root) => child === root || child.startsWith(root + '/')
+  // 子代理判定（与 DSH 原生 dsh-subagent 同字段：childSessionMeta 单一 stamp 点，spawn+fork 覆盖）
+  const isSubagentSession = (session) => {
+    const h = session && session.header
+    return !!(h && (h.origin === 'subagent' || (h.delegationDepth || 0) > 0))
+  }
 
   async function exists(p) {
     try { const t = await ctx.fs.resolve(p); const s = await ctx.fs.stat(t); return s !== undefined } catch (e) { return false }
@@ -39,9 +44,12 @@ export function apply(ctx) {
   async function readText(p) {
     try { const t = await ctx.fs.resolve(p); return await ctx.fs.readText(t) } catch (e) { return undefined }
   }
-  async function writeText(p, content) {
+  async function writeText(p, content, project) {
     const t = await ctx.fs.resolve(p)
-    await ctx.fs.writeText(t, content)
+    // 显式策略（DESIGN §2.9/R1）：agentless 调用的策略回退根不一定是项目根，
+    // 必须显式传 {mode:'workspace-write', workspaceRoot: projectRoot}，否则写项目记忆树会被拒。
+    const root = project || t
+    await ctx.fs.writeText(t, content, undefined, undefined, { mode: 'workspace-write', workspaceRoot: root })
   }
 
   async function resolveProject(cwd) {
@@ -136,7 +144,7 @@ export function apply(ctx) {
     }
     node[parts[parts.length - 1]] = v
     try {
-      await writeText(settingsPath(project), JSON.stringify(j, null, 2) + '\n')
+      await writeText(settingsPath(project), JSON.stringify(j, null, 2) + '\n', project)
     } catch (e) { return { ok: false, error: '写入 settings.json 失败：' + String(e) } }
     projectConfigs.delete(project)
     const cfg = await projectConfig(project)
@@ -152,7 +160,7 @@ export function apply(ctx) {
       if (await exists(newP)) return
       const content = await readText(oldP)
       if (content === undefined) return
-      await writeText(newP, content)
+      await writeText(newP, content, project)
       dbgLog('memory migrated:', oldP, '->', newP)
     } catch (e) { dbgLog('migrate error:', String(e)) }
   }
@@ -265,6 +273,8 @@ export function apply(ctx) {
     st = {
       sid,
       cwd: header && header.cwd,
+      // 子代理过滤（mimo servesCheckpoint 对应物）；header 字段持久化，重启不丢。
+      subagent: isSubagentSession(session),
       project: undefined,
       paths: undefined,
       config: { ...DEFAULTS },
@@ -379,7 +389,7 @@ export function apply(ctx) {
       if (!parsed || !parsed.sections) {
         dbgLog('writer JSON parse failed, outLen =', out.length, 'head =', out.slice(0, 120).replace(/\n/g, ' '), 'reason =', reason)
         const fallback = ckptTemplate()
-        await writeText(st.paths.checkpoint, stampCkpt(fallback))
+        await writeText(st.paths.checkpoint, stampCkpt(fallback), st.project)
         st.buffer = []
         dbgLog('writer degraded fallback written')
         return 'degraded'
@@ -395,13 +405,13 @@ export function apply(ctx) {
       }
       if (errs.length) {
         dbgLog('checkpoint validation failed:', errs.join(','), '-> quarantine')
-        try { await writeText(st.paths.checkpoint + '.invalid', next) } catch (e) {}
+        try { await writeText(st.paths.checkpoint + '.invalid', next, st.project) } catch (e) {}
         return 'invalid'
       }
       const before = next.length
       next = applyBudget(next, CKPT_MAX_CHARS)
       if (next.length < before) dbgLog('checkpoint budget truncated:', before, '->', next.length, 'sid =', sid.slice(0, 8))
-      await writeText(st.paths.checkpoint, stampCkpt(next))
+      await writeText(st.paths.checkpoint, stampCkpt(next), st.project)
       st.buffer = []
       dbgLog('checkpoint written, sid =', sid.slice(0, 8), 'reason =', reason)
       return 'ok'
@@ -527,20 +537,20 @@ export function apply(ctx) {
     return lines.join('\n')
   }
 
-  async function updateIndex(indexPath, patch) {
+  async function updateIndex(indexPath, patch, project) {
     try {
       let idx = {}
       const d = await readText(indexPath)
       if (d) { try { idx = JSON.parse(d) } catch (e) {} }
       idx = Object.assign(idx, patch, { version: 1 })
-      await writeText(indexPath, JSON.stringify(idx, null, 2))
+      await writeText(indexPath, JSON.stringify(idx, null, 2), project)
     } catch (e) {}
   }
 
-  async function appendDreamLog(logPath, entry) {
+  async function appendDreamLog(logPath, entry, project) {
     try {
       const old = (await readText(logPath)) || ''
-      await writeText(logPath, old + JSON.stringify(entry) + '\n')
+      await writeText(logPath, old + JSON.stringify(entry) + '\n', project)
     } catch (e) {}
   }
 
@@ -562,6 +572,7 @@ export function apply(ctx) {
     const sid = agent && agent.session && agent.session.id
     const cwd = agent && agent.session && agent.session.header && agent.session.header.cwd
     if (!sid || !cwd) return { ok: false, error: 'no session/cwd' }
+    if (agent.session && isSubagentSession(agent.session)) return { ok: false, error: '子代理会话不能触发 dream（请由主会话触发）' }
     const project = await resolveProject(cwd)
     if (!project) return { ok: false, error: 'no project anchor' }
     if (dreamLocks.has(project)) return { ok: false, error: 'dream already running for this project' }
@@ -609,9 +620,9 @@ export function apply(ctx) {
         dbgLog('dream aborted: MEMORY.md changed during run')
         return { ok: false, error: 'memory changed during dream, aborted' }
       }
-      await writeText(paths.memory, newMem)
+      await writeText(paths.memory, newMem, project)
       const idx = JSON.parse((await readText(paths.index)) || '{}') || {}
-      await updateIndex(paths.index, { lastDreamAt: Date.now(), dreamCount: (idx.dreamCount || 0) + 1 })
+      await updateIndex(paths.index, { lastDreamAt: Date.now(), dreamCount: (idx.dreamCount || 0) + 1 }, project)
       const summary = {
         ts: new Date().toISOString(),
         project,
@@ -622,7 +633,7 @@ export function apply(ctx) {
         paths: pathsCheck,
         health: parsed.health || null,
       }
-      await appendDreamLog(paths.log, summary)
+      await appendDreamLog(paths.log, summary, project)
       dbgLog('dream done, project =', project, 'ckpts =', ckpts.length)
       return { ok: true, project, ckpts: ckpts.length, memBytes: newMem.length, deleted: (parsed.deleted || []).length, merged: (parsed.merged || []).length }
     } catch (e) {
@@ -967,6 +978,7 @@ export function apply(ctx) {
   ctx.on('session/event', (session, event) => {
     try {
       const sid = session.id
+      if (isSubagentSession(session)) return // 子代理会话不参与记忆（写门在 tools/pre-execute，不受此影响）
       if (event.type === 'user/message') {
         const src = event.data && event.data.source
         if (src && src.kind === 'user') {
