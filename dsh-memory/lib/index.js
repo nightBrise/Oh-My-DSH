@@ -7,8 +7,23 @@ export const name = 'dsh-memory'
 
 export const inject = ['fs', 'agents', 'tokenMeter', 'llm', 'agentDefaultModel', 'workspaceRegistry', 'timer', 'commands', 'sessionQuery', 'sessionPersistence', 'tools']
 
-const DEFAULTS = { memDir: '.dsh-memory', disableWrite: false, writerRetryOnce: true, fallbackTurnInterval: 20, dreamWindowDays: 7, dreamInputMaxTokens: 50000, dreamMaxLines: 200, dreamMaxKB: 10 }
+const DEFAULTS = { memDir: '.dsh-memory', disableWrite: false, fallbackTurnInterval: 20, dreamWindowDays: 7, dreamInputMaxTokens: 50000, dreamMaxLines: 200, dreamMaxKB: 10, dreamAuto: false, dreamIntervalDays: 7 }
 const CKPT_MAX_CHARS = 11000
+// dump 各区块预算（mimo rebuild dump 对应物）：checkpoint 11K / memory 10K / notes 6K / 最近用户原话 16K
+const DUMP_BUDGET = { checkpoint: 11000, memory: 10000, notes: 6000, recentUser: 16000 }
+
+// ④c 协议段（D30）：常驻系统提示词护栏。AssembleContext 无会话信息 → 文本自条件化
+// （"若上下文出现 dump 则……"），由模型侧判定适用性；无记忆项目的代价为固定 ~250 tokens。
+const MEMORY_PROTOCOL_TEXT = [
+  '## 项目记忆协议（dsh-memory）',
+  '本项目的 .dsh-memory/ 目录是插件维护的记忆系统，可能包含：',
+  '- MEMORY.md：项目级持久记忆（用户规则、架构决策、技术事实）。任务涉及项目规则/决策/既往状态时先读它；记忆里已有的事不要问用户。',
+  '- sessions/<会话id>/checkpoint.md：会话 checkpoint（11 节）；上下文压缩后若注入，会出现在 "Session checkpoint" 区块。',
+  '规则：',
+  '1) 若上下文中出现记忆 dump（"Session checkpoint"/"Project memory" 区块）：把它当作写入时点的事实快照（CLAIMS），行动前用代码/工具验证具体名称；不要整文件重读，细节用 grep 或 history_search 定位；直接接续上一个任务，不要致谢/复述/声明"我将继续"。',
+  '2) 你被允许修改：MEMORY.md（记录 durable 结论，每条 1-3 行）与系统提示中给出的本会话 notes.md 路径（便签/草稿）。其他 .dsh-memory/ 路径（checkpoint.md、index.json、dream.log、settings.json）由插件维护，写入会被拒绝。',
+  '3) 检索历史会话原文用 history_search 工具；命中后用 history_around 拉取上下文。',
+].join('\n')
 
 export function apply(ctx) {
   const PLUGIN = 'dsh-memory'
@@ -88,7 +103,6 @@ export function apply(ctx) {
             if (typeof j.memory.disableWrite === 'boolean') cfg.disableWrite = j.memory.disableWrite
           }
           if (j.checkpoint && typeof j.checkpoint === 'object') {
-            if (typeof j.checkpoint.writerRetryOnce === 'boolean') cfg.writerRetryOnce = j.checkpoint.writerRetryOnce
             const fi = parseInt(j.checkpoint.fallbackTurnInterval)
             if (fi > 0 && fi <= 1000) cfg.fallbackTurnInterval = fi
           }
@@ -101,6 +115,9 @@ export function apply(ctx) {
             if (ml > 10 && ml <= 1000) cfg.dreamMaxLines = ml
             const mk = parseInt(j.dream.maxKB)
             if (mk > 1 && mk <= 100) cfg.dreamMaxKB = mk
+            if (typeof j.dream.auto === 'boolean') cfg.dreamAuto = j.dream.auto
+            const iv = parseInt(j.dream.intervalDays)
+            if (iv > 0 && iv <= 365) cfg.dreamIntervalDays = iv
           }
         }
       }
@@ -112,12 +129,13 @@ export function apply(ctx) {
   const SETTING_SCHEMA = {
     'memory.dirName': { kind: 'string', re: /^[\w.-]+$/ },
     'memory.disableWrite': { kind: 'boolean' },
-    'checkpoint.writerRetryOnce': { kind: 'boolean' },
     'checkpoint.fallbackTurnInterval': { kind: 'int', min: 1, max: 1000 },
     'dream.windowDays': { kind: 'int', min: 1, max: 365 },
     'dream.inputMaxTokens': { kind: 'int', min: 1000, max: 500000 },
     'dream.maxLines': { kind: 'int', min: 10, max: 1000 },
     'dream.maxKB': { kind: 'int', min: 1, max: 100 },
+    'dream.auto': { kind: 'boolean' },
+    'dream.intervalDays': { kind: 'int', min: 1, max: 365 },
   }
 
   async function setProjectSetting(project, key, valueStr) {
@@ -211,49 +229,83 @@ export function apply(ctx) {
     return flag + '\n' + text.replace(/^⚠️ truncated:[^\n]*\n/, '') + '\n'
   }
 
-  const CKPT_SECTIONS = ['§1 Active intent', '§2 Next concrete action', '§3 Directives (this session)', '§4 Task tree', '§5 Current work', '§6 Files and code sections', '§7 Discovered knowledge (cross-task)', '§8 Errors and fixes', '§9 Live resources', '§10 Design decisions and discussion outcomes', '§11 Open notes']
-
-  function ckptTemplate() {
-    const body = CKPT_SECTIONS.map((s) => '## ' + s + '\n\n(none)\n').join('\n')
-    return '# Session checkpoint\nTopic: (none yet)\n' + body
+  // 章节感知截断（mimo XtH 对应物）：超预算先按比例切 body 保骨架；结构本身超预算则只留标题。
+  function sectionTruncate(md, budget) {
+    const text = String(md || '')
+    if (!text || text.length <= budget) return text
+    const lines = text.split('\n')
+    const blocks = []
+    let cur = { head: null, body: [] }
+    for (const line of lines) {
+      if (/^#{1,3} /.test(line)) {
+        if (cur.head !== null || cur.body.some((l) => l.trim() !== '')) blocks.push(cur)
+        cur = { head: line, body: [] }
+      } else cur.body.push(line)
+    }
+    if (cur.head !== null || cur.body.some((l) => l.trim() !== '')) blocks.push(cur)
+    const struct = blocks.map((b) => b.head).join('\n') + '\n…（超预算：仅保留结构；细节用 history_search/history_around 检索）'
+    if (struct.length > budget) return struct.slice(0, budget)
+    const tailNote = '\n…（本节超预算截断）'
+    const headCost = blocks.reduce((n, b) => n + b.head.length + 2, 0)
+    const avail = Math.max(0, budget - headCost - 20)
+    const bodyLens = blocks.map((b) => Math.max(0, b.body.join('\n').trim().length + 2))
+    const bodyTotal = bodyLens.reduce((a, b) => a + b, 0) || 1
+    let out = ''
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i]
+      let body = b.body.join('\n').trim()
+      const share = Math.floor(avail * bodyLens[i] / bodyTotal)
+      if (body.length > share) body = body.slice(0, Math.max(0, share - tailNote.length)) + tailNote
+      out += b.head + '\n' + (body ? body + '\n' : '')
+      if (out.length > budget) { out = out.slice(0, budget); break }
+    }
+    return out
   }
+
+  const CKPT_SECTIONS = ['§1 Active intent', '§2 Next concrete action', '§3 Directives (this session)', '§4 Task tree', '§5 Current work', '§6 Files and code sections', '§7 Discovered knowledge (cross-task)', '§8 Errors and fixes', '§9 Live resources', '§10 Design decisions and discussion outcomes', '§11 Open notes']
 
   function stampCkpt(md) {
     return '<!-- ckpt-at: ' + new Date().toISOString() + ' -->\n' + md
   }
 
+  function escRe(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  }
+
   function extractSection(md, title) {
-    const re = new RegExp('## ' + title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\n([\s\S]*?)(?=\n## |$)')
+    const re = new RegExp('## ' + escRe(title) + '\n([\\s\\S]*?)(?=\\n## |$)')
     const m = md.match(re)
     return m ? m[1].trim() : ''
   }
 
-  function applyKeep(oldMd, parsed) {
-    const sections = parsed && parsed.sections
-    if (!sections || typeof sections !== 'object') return oldMd || ckptTemplate()
-    let out = '# Session checkpoint\nTopic: ' + (typeof parsed.topic === 'string' ? parsed.topic : '(none yet)') + '\n'
-    if (oldMd) {
-      const tm = oldMd.match(/^Topic:\s*(.+)$/m)
-      if (tm && typeof parsed.topic !== 'string') out = '# Session checkpoint\nTopic: ' + tm[1] + '\n'
+  // 纯文本 checkpoint 解析（替代 JSON 协议：本地小模型 JSON 转义/键名匹配均不可靠）。
+  // 继承语义：body 为 KEEP/空 或 节标题缺失 → 继承旧内容（首写为空则 (none)）；
+  // 显式 (none) 视为有效清空。garbage = 无 Topic 且无任何节标题（整体不可识别）。
+  function parseCkptText(out, oldMd) {
+    const garbageResult = { garbage: true, md: '', missing: CKPT_SECTIONS.slice() }
+    let text = String(out || '').trim()
+    if (!text) return garbageResult
+    if (text.indexOf('```') === 0) text = text.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```\s*$/, '').trim()
+    const hasTopic = /^Topic:\s*\S/m.test(text)
+    const headersFound = CKPT_SECTIONS.filter((t) => new RegExp('(^|\\n)## ' + escRe(t) + '\\s*(\\n|$)').test(text))
+    if (!hasTopic && headersFound.length === 0) return garbageResult
+    let topic = ''
+    const tm = text.match(/^Topic:\s*(.+)$/m)
+    if (tm && tm[1].trim() !== 'KEEP') topic = tm[1].trim()
+    if (!topic && oldMd) {
+      const ot = oldMd.match(/^Topic:\s*(.+)$/m)
+      if (ot && ot[1].trim() !== '(none yet)') topic = ot[1].trim()
     }
+    if (!topic) topic = '(none yet)'
+    const missing = CKPT_SECTIONS.filter((t) => headersFound.indexOf(t) === -1)
+    let md = '# Session checkpoint\nTopic: ' + topic + '\n'
     for (const title of CKPT_SECTIONS) {
-      const v = sections[title]
-      let body = ''
-      if (v === undefined || v === 'KEEP') {
-        body = oldMd ? extractSection(oldMd, title) : ''
-      } else if (typeof v === 'string') {
-        body = v.trim()
-      }
-      out += '\n## ' + title + '\n\n' + (body || '(none)') + '\n'
+      const m = text.match(new RegExp('(^|\\n)## ' + escRe(title) + '\\n([\\s\\S]*?)(?=\\n## |$)'))
+      let body = m ? m[2].trim() : ''
+      if (body === 'KEEP' || body === '') body = oldMd ? extractSection(oldMd, title) : ''
+      md += '\n## ' + title + '\n\n' + (body || '(none)') + '\n'
     }
-    return out
-  }
-
-  function validateCkpt(md) {
-    const errs = []
-    if (!/^Topic:/m.test(md)) errs.push('topic-missing')
-    for (const s of CKPT_SECTIONS) if (md.indexOf('## ' + s) === -1) errs.push('section-missing:' + s)
-    return errs
+    return { garbage: false, md, missing }
   }
 
   function defaultThresholdsFor(window) {
@@ -279,6 +331,8 @@ export function apply(ctx) {
       paths: undefined,
       config: { ...DEFAULTS },
       buffer: [],
+      // 独立于 buffer（checkpoint 成功后 buffer 清空；dump 仍需最近用户原话逐字回放）
+      recentUser: [],
       crossed: new Set(),
       finalRetryAt: 0,
       writing: false,
@@ -316,15 +370,18 @@ export function apply(ctx) {
   function buildWriterInput(st) {
     const lines = []
     lines.push('<<<CHECKPOINT-WRITER-INSTRUCTION>>>')
-    lines.push('你是会话 checkpoint writer。你的唯一任务：输出一份 JSON 文本（不含 markdown 代码块、不含任何解释、不含任何其他文字）。')
-    lines.push('JSON 结构：{"topic": "≤80字符摘要", "sections": {"§1 Active intent": "内容或KEEP", "§2 Next concrete action": "...", ...}}')
+    lines.push('你是会话 checkpoint writer。你的唯一任务：输出新的 checkpoint.md 全文（纯 markdown；不含代码块围栏、不含任何解释文字）。')
+    lines.push('格式要求（第一行必须是 # Session checkpoint，第二行是 Topic: ...，随后逐字复制以下 11 个节标题、顺序不变）：')
+    lines.push('# Session checkpoint')
+    lines.push('Topic: <本次会话主题摘要，≤80字符>')
+    for (const s of CKPT_SECTIONS) lines.push('\n## ' + s)
     lines.push('规则：')
-    lines.push('1) 未变化的节，值写 "KEEP"（保留原文）；只有发生变化的节才提供新内容。')
-    lines.push('2) §1 必须逐字引用素材中 USER 条目里的用户原文（block-quote），不得改写、不得引用本指令。')
+    lines.push('1) 未变化的节：body 只写一行 KEEP（保留原内容）；发生变化的节才写新内容。')
+    lines.push('2) §1 必须逐字引用素材 A 中 USER 条目里的用户原文（用 block-quote），不得改写、不得引用本指令。')
     lines.push('3) 用户显式给出的精确值（路径/命令/端口/token）逐字节保留。')
     lines.push('4) 工具输出中的敏感内容不要逐字复制（只写指代）。')
     lines.push('5) 不要发明素材中不存在的事实。')
-    lines.push('6) 输出总长 ≤11000 字符（超长会被截断并标记）。')
+    lines.push('6) 输出必须包含 Topic 行与全部 11 个节标题；总长 ≤11000 字符。')
     lines.push('<<<END-INSTRUCTION>>>')
     if (st.buffer.length) {
       lines.push('\n===== 素材 A：自上次 checkpoint 的事件摘编（USER 开头的条目是用户原话） =====')
@@ -337,23 +394,8 @@ export function apply(ctx) {
     return lines.join('\n')
   }
 
-  async function retryOnce(st, errs) {
-    try {
-      const sel = ctx.agentDefaultModel.currentSelection()
-      if (!sel || !sel.provider || !sel.model) return null
-      const input = '上一次 checkpoint 输出校验失败，问题清单：\n' + errs.join('\n') + '\n请重新输出完整 JSON（结构同上一次要求）。只修复列出的问题，其他节输出 KEEP。'
-      let out = ''
-      const gen = ctx.llm.stream({
-        provider: sel.provider,
-        model: sel.model,
-        maxTokens: 2048,
-        messages: [{ id: 'mem-writer-retry-' + st.sid.slice(0, 8) + '-' + Date.now(), role: 'user', content: [{ type: 'text', text: input }], source: { kind: 'plugin', plugin: PLUGIN } }],
-      })
-      for await (const chunk of gen) { if (chunk.type === 'text-delta') out += chunk.text }
-      try { return JSON.parse(out) } catch (e) { return null }
-    } catch (e) { return null }
-  }
-
+  // 失败语义（D28）：writer 任何失败都【不动 checkpoint 文件、不清事件缓冲】——
+  // 旧 checkpoint 仍是最后已知好状态，缓冲累积供下次重试；绝不写全 (none) 模板覆盖好内容。
   async function writeCheckpoint(sid, reason) {
     const st = states.get(sid)
     if (!st || !st.project || st.writing) return 'queued'
@@ -366,48 +408,46 @@ export function apply(ctx) {
       if (!sel || !sel.provider || !sel.model) { dbgLog('no route for writer'); return 'skipped' }
       st.lastCkpt = await readText(st.paths.checkpoint)
       st.notesSnapshot = await readText(st.paths.notes)
+      // 缓冲为空 = 自上次写入以来无新素材：跳过（写只会推进 ckpt-at 时间戳，造成虚假进展）
+      if (!st.buffer.length) { dbgLog('writer skipped: empty buffer, sid =', sid.slice(0, 8), 'reason =', reason); return 'skipped' }
       const input = buildWriterInput(st)
-      const callStream = async (maxTokens, extra) => {
-        let out = ''
+      // 思考策略（D32-D34）：不传 reasoningEffort——手写声明的本地模型无 reasoning 能力声明，
+      // dsh-llm 门面会拒绝任何显式 effort（含 'off'），省略参数才放行；省略后服务端按
+      // Qwen3 模板默认开思考，maxTokens 16384 容纳 思考+输出。
+      // 初调零文本（思考吃光预算 / 模型提前停止的统称签名）→ 重试追加 /no_think；
+      // 初调有文本但格式不对 → 常规纠偏重试（思考保留）。/no_think 是 Qwen3 按请求开关，
+      // 只作用于该次插件后台调用，主 agent 对话回路不受影响。
+      const call = async (text, tag) => {
         const gen = ctx.llm.stream({
           provider: sel.provider,
           model: sel.model,
-          maxTokens,
-          messages: [{ id: 'mem-writer-' + sid.slice(0, 8) + '-' + Date.now() + '-' + (extra ? 'r' : '1'), role: 'user', content: [{ type: 'text', text: extra ? extra : input }], source: { kind: 'plugin', plugin: PLUGIN } }],
+          maxTokens: 16384,
+          messages: [{ id: 'mem-writer-' + sid.slice(0, 8) + '-' + tag, role: 'user', content: [{ type: 'text', text }], source: { kind: 'plugin', plugin: PLUGIN } }],
         })
-        for await (const chunk of gen) { if (chunk.type === 'text-delta') out += chunk.text }
-        return out
+        return collectStreamText(gen)
       }
-      let out = ''
-      try { out = await callStream(4096) } catch (e) { dbgLog('writer stream error:', String(e), 'sid =', sid.slice(0, 8)); return 'error' }
-      if (!out.trim()) {
-        try { out = await callStream(4096, input) } catch (e) {}
-        if (!out.trim()) { dbgLog('writer empty output x2, sid =', sid.slice(0, 8), 'inputLen =', input.length, 'reason =', reason); return 'empty' }
+      let res
+      try { res = await call(input, '1') } catch (e) { dbgLog('writer stream error:', String(e), 'sid =', sid.slice(0, 8)); return 'error' }
+      let out = res.text
+      let parsed = parseCkptText(out, st.lastCkpt)
+      if (parsed.garbage) {
+        const zeroText = !out.trim()
+        dbgLog('writer output empty/unrecognized, outLen =', out.length, 'finish =', res.finishReason, 'zeroText =', zeroText, 'reason =', reason)
+        try {
+          // 零文本：思考失控签名 → /no_think 重试（D33）；有文本但格式错：常规纠偏重试
+          const retryText = input + '\n\n（注意：上一次输出无法识别为 checkpoint。请严格按格式重新输出：第一行 # Session checkpoint，第二行 Topic: ...，随后 11 个节标题逐字不变；未变化的节 body 只写一行 KEEP。）' + (zeroText ? '\n/no_think' : '')
+          res = await call(retryText, 'r')
+        } catch (e) {}
+        out = res.text
+        parsed = parseCkptText(out, st.lastCkpt)
+        if (parsed.garbage) dbgLog('writer retry failed, finish =', res.finishReason, 'outLen =', out.length)
       }
-      let parsed = null
-      try { parsed = JSON.parse(out) } catch (e) {}
-      if (!parsed || !parsed.sections) {
-        dbgLog('writer JSON parse failed, outLen =', out.length, 'head =', out.slice(0, 120).replace(/\n/g, ' '), 'reason =', reason)
-        const fallback = ckptTemplate()
-        await writeText(st.paths.checkpoint, stampCkpt(fallback), st.project)
-        st.buffer = []
-        dbgLog('writer degraded fallback written')
-        return 'degraded'
+      if (parsed.garbage) {
+        dbgLog('writer failed non-destructively (old checkpoint + buffer kept), sid =', sid.slice(0, 8), 'reason =', reason)
+        return 'failed'
       }
-      let next = applyKeep(st.lastCkpt || ckptTemplate(), parsed)
-      let errs = validateCkpt(next)
-      if (errs.length && st.config.writerRetryOnce) {
-        const retry = await retryOnce(st, errs)
-        if (retry && retry.sections) {
-          next = applyKeep(st.lastCkpt || ckptTemplate(), retry)
-          errs = validateCkpt(next)
-        }
-      }
-      if (errs.length) {
-        dbgLog('checkpoint validation failed:', errs.join(','), '-> quarantine')
-        try { await writeText(st.paths.checkpoint + '.invalid', next, st.project) } catch (e) {}
-        return 'invalid'
-      }
+      if (parsed.missing.length) dbgLog('writer sections missing (inherited from old):', parsed.missing.join(','), 'sid =', sid.slice(0, 8))
+      let next = parsed.md
       const before = next.length
       next = applyBudget(next, CKPT_MAX_CHARS)
       if (next.length < before) dbgLog('checkpoint budget truncated:', before, '->', next.length, 'sid =', sid.slice(0, 8))
@@ -455,13 +495,15 @@ export function apply(ctx) {
           }
           continue
         }
-        st.crossed.add(t)
         const r = await writeCheckpoint(sid, 'threshold-' + Math.round(t * 100))
+        if (r === 'skipped' || r === 'queued') continue // 无素材/写入忙碌：不标记 crossed，下次 turn/end 重试
+        st.crossed.add(t)
         if (t === maxT && r !== 'ok') st.finalRetryAt = now + st.window * step
       }
     } catch (e) { dbgLog('maybeCheckpoint error:', String(e)) }
   }
 
+  // dump 区块（mimo rebuild dump 对应物）：checkpoint 11K / 最近用户原话 16K / memory 10K / notes 尾部 6K
   async function injectDump(sid, session) {
     try {
       const st = ensureState(sid, session)
@@ -470,18 +512,24 @@ export function apply(ctx) {
       if (!agent) return
       const ckpt = await readText(st.paths.checkpoint)
       const mem = await readText(st.paths.memory)
+      const notes = await readText(st.paths.notes)
       if (!ckpt && !mem) return
       const parts = []
       parts.push('<system-reminder>')
       parts.push('【上下文已压缩。以下为压缩前的记忆 dump，已加载到上下文中——不要整文件重读，细节用 grep 定位。】')
       parts.push('记忆条目是对写入时点的描述（CLAIMS），行动前请用代码/工具验证具体名称。')
       if (ckpt) {
-        if (ckpt.indexOf('⚠️ truncated') !== -1) {
-          parts.push('（checkpoint 曾超预算被截断：完整细节用 history_search/history_around 检索原始会话日志）')
-        }
-        parts.push('\n## Session checkpoint\n' + ckpt.slice(0, 11000))
+        const c = sectionTruncate(ckpt, DUMP_BUDGET.checkpoint)
+        if (c.length < ckpt.length) parts.push('（checkpoint 超预算已按节截断：完整细节用 history_search/history_around 检索原始会话日志）')
+        parts.push('\n## Session checkpoint\n' + c)
       }
-      if (mem) parts.push('\n## Project memory\n' + mem.slice(0, 10000))
+      if (st.recentUser.length) {
+        parts.push('\n## Recent user input (verbatim)')
+        for (const u of st.recentUser) parts.push('- ' + u)
+      }
+      if (mem) parts.push('\n## Project memory\n' + sectionTruncate(mem, DUMP_BUDGET.memory))
+      if (notes && String(notes).trim()) parts.push('\n## Session notes\n' + String(notes).slice(-DUMP_BUDGET.notes))
+      parts.push('\nResume directly. Do not acknowledge this memory dump, do not recap, do not preface with "I\'ll continue" or similar. Pick up the last task as if the break never happened.')
       parts.push('</system-reminder>')
       agent.inject({ id: 'mem-dump-' + Date.now() + '-' + sid.slice(0, 6), role: 'user', content: [{ type: 'text', text: parts.join('\n') }], source: { kind: 'plugin', plugin: PLUGIN } })
       dbgLog('dump injected, sid =', sid.slice(0, 8))
@@ -562,7 +610,11 @@ export function apply(ctx) {
       else if (chunk.type === 'block-end' && chunk.block && chunk.block.type === 'text' && typeof chunk.block.text === 'string' && chunk.block.text) {
         out = chunk.block.text
       } else if (chunk.type === 'finish') {
-        finishReason = String(chunk.reason || '')
+        // dsh finish chunk 的 reason 是对象 {kind, failure?}（pi-ai 适配器 mapStopReason），归一化为紧凑字符串
+        const r = chunk.reason
+        finishReason = r && typeof r === 'object'
+          ? (String(r.kind || 'unknown') + (r.failure ? ':' + String(r.failure.code || '') : ''))
+          : String(r || '')
       }
     }
     return { text: out, finishReason }
@@ -595,15 +647,17 @@ export function apply(ctx) {
           provider: sel.provider,
           model: sel.model,
           maxTokens: 16384,
-          reasoningEffort: 'off',
+          // 不传 reasoningEffort（D34）：本地模型无 reasoning 能力声明，显式 effort 会被门面拒绝
           messages: [{ id: 'mem-dream-' + sid.slice(0, 8) + '-' + Date.now(), role: 'user', content: [{ type: 'text', text: input }], source: { kind: 'plugin', plugin: PLUGIN } }],
         })
         res = await collectStreamText(gen)
         dbgLog('dream stream done, outLen =', res.text.length, 'ms =', Date.now() - t0, 'inputLen =', input.length, 'finish =', res.finishReason)
       } catch (e) { dbgLog('dream stream threw:', String(e)); return { ok: false, error: 'stream: ' + String(e) } }
-      const out = res.text
+      const out = String(res.text).trim()
+      let outClean = out
+      if (outClean.indexOf('```') === 0) outClean = outClean.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```\s*$/, '').trim()
       let parsed = null
-      try { parsed = JSON.parse(out) } catch (e) {}
+      try { parsed = JSON.parse(outClean) } catch (e) {}
       if (!parsed || typeof parsed.memory !== 'string' || !parsed.memory.trim()) {
         dbgLog('dream output invalid, outLen =', out.length, 'head =', out.slice(0, 200).replace(/\n/g, ' '))
         return { ok: false, error: 'invalid dream output' }
@@ -985,6 +1039,11 @@ export function apply(ctx) {
           const st = ensureState(sid, session)
           const text = (event.data && event.data.content || []).map((b) => b.type === 'text' ? b.text : '').join('\n')
           bufferPush(sid, { t: 'USER:\n' + text.slice(0, 2000) })
+          if (text.trim()) {
+            st.recentUser.push(text.slice(0, 2000))
+            let tot = 0
+            for (let i = st.recentUser.length - 1; i >= 0; i--) { tot += st.recentUser[i].length; if (tot > DUMP_BUDGET.recentUser) { st.recentUser.splice(0, i + 1); break } }
+          }
           if (!st.reminderSent && !st.config.disableWrite) {
             st.reminderSent = true
             ;(async () => {
@@ -1076,6 +1135,44 @@ export function apply(ctx) {
       return next()
     } catch (e) { return next() }
   })
+
+  // ⑤ dream.auto（D31）：新会话启动（source='startup'）时检查式触发；opt-in，默认关。
+  // 间隔门用 index.lastDreamAt 与 dream.intervalDays；无素材（无近期 checkpoint 且 MEMORY.md 为空）跳过。
+  ctx.on('agent/session-start', (payload) => {
+    const p = payload || {}
+    if (!p.agent || p.source !== 'startup') return
+    ;(async () => {
+      try {
+        const agent = p.agent
+        const session = agent.session
+        if (!session || isSubagentSession(session)) return
+        const cwd = session.header && session.header.cwd
+        if (!cwd) return
+        const project = await resolveProject(cwd)
+        if (!project) return
+        const cfg = await projectConfig(project)
+        if (!cfg.dreamAuto || cfg.disableWrite) return
+        const paths = pathsFor(project, 'dream-auto', cfg.memDir)
+        const idx = JSON.parse((await readText(paths.index)) || '{}') || {}
+        const last = idx.lastDreamAt || 0
+        if (last && Date.now() - last < cfg.dreamIntervalDays * 86400000) return
+        const ckpts = await collectRecentCheckpoints(paths.sessionsDir, cfg.dreamIntervalDays)
+        const mem = await readText(paths.memory)
+        if (!ckpts.length && !(mem && String(mem).trim())) return
+        dbgLog('dream auto scheduled, project =', project, 'ckpts =', ckpts.length)
+        runDream(agent, 'auto')
+      } catch (e) { dbgLog('dream auto error:', String(e)) }
+    })()
+  })
+
+  // ④c 协议段注册（systemPrompt 服务可选；缺失时静默跳过，其余功能不受影响）
+  const sp = ctx.get('systemPrompt')
+  if (sp && typeof sp.section === 'function') {
+    try {
+      sp.section({ name: 'dsh-memory-protocol', order: 150, text: MEMORY_PROTOCOL_TEXT })
+      dbgLog('protocol section registered (order 150)')
+    } catch (e) { dbgLog('protocol section register failed:', String(e)) }
+  }
 
   ctx.on('agent/disposed', ({ agent }) => {
     const sid = agent.session && agent.session.id

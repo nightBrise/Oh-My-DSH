@@ -6,12 +6,14 @@ DSH 项目级跨会话记忆插件（动态插件迭代 → 正式包，设计�
 
 ## 功能
 
-- **会话 checkpoint**：事件采集（USER / TOOL_CALL / TOOL_RESULT / ASSISTANT）→ 窗口自适应阈值阶梯自动触发 → 模型 writer 按 KEEP 协议增量更新 11 节快照（未变化的节返回 `KEEP` 保留原文；`<!-- ckpt-at -->` 时间戳；11K 字符预算，超限截断 + `⚠️ truncated` 标记）。阈值阶梯随上下文窗口自适应：25K 以下不设自动阈值（退化为轮次触发，见 `checkpoint.fallbackTurnInterval`）；≤200K 为 20/40/60/80%；≤500K 为 10%~90%；更大窗口为 5%~90%；末档阈值在压力回升后会再次触发。校验失败先重试一次（`checkpoint.writerRetryOnce`）；仍无效则隔离写入 `checkpoint.md.invalid`，降级输出回退为模板；agent 销毁时补写最终 checkpoint。
-- **压缩联动**：`compaction/start` 时若缓冲非空先补写一次 checkpoint（backstop）；`compaction/end` 后注入记忆 dump（checkpoint + MEMORY.md）为系统提醒；压缩失败时两者都跳过。
+- **会话 checkpoint**：事件采集（USER / TOOL_CALL / TOOL_RESULT / ASSISTANT）→ 窗口自适应阈值阶梯自动触发 → 模型 writer 按 KEEP 协议增量更新 11 节快照（未变化的节写一行 `KEEP` 保留原文；`<!-- ckpt-at -->` 时间戳；11K 字符预算，超限截断 + `⚠️ truncated` 标记）。阈值阶梯随上下文窗口自适应：25K 以下不设自动阈值（退化为轮次触发，见 `checkpoint.fallbackTurnInterval`）；≤200K 为 20/40/60/80%；≤500K 为 10%~90%；更大窗口为 5%~90%；末档阈值在压力回升后会再次触发。writer 输出**纯文本 checkpoint markdown**（不用 JSON——对小本地模型更稳）。**思考模式默认保留**（16K 输出预算容纳 思考+输出）；初调**零文本**时（思考吃光预算 / 模型提前停止——统一签名，不依赖 finish 形状）重试追加 `/no_think`——Qwen3 按请求开关，只作用于该次插件后台调用，**绝不影响主 agent 对话**；有文本但格式错则常规纠偏重试（思考保留）。不可识别的输出重试一次，**任何失败模式都是非破坏性的**：最后的好 checkpoint 文件与事件缓冲原样保留供下次重试（缓冲为空则直接跳过写入，checkpoint 时间戳绝不在没有新素材时推进）；agent 销毁时补写最终 checkpoint。
+- **压缩联动**：`compaction/start` 时若缓冲非空先补写一次 checkpoint（backstop）；`compaction/end` 后注入记忆 dump 为系统提醒，各区块带预算——**Session checkpoint**（11K，章节感知截断：先切 body 保骨架）+ **最近用户输入（逐字）**（16K，最近用户消息各 ≤2K）+ **项目记忆**（10K，章节感知）+ **会话便签 notes**（尾部 6K）——外加恢复指令（直接接续任务，不要致谢/复述 dump）；压缩失败时两者都跳过。
 - **跨会话召回**：首条真人消息后（若项目确有记忆文件）注入 reminder（MEMORY.md 与最近会话 checkpoint 的精确路径），指示 agent 用 grep 定位记忆目录、用 `history_search` 查原文，不要重复询问。
-- **Dream 整合**：`/dream` 命令或 `dream_now` 工具 → 收集窗口内 checkpoint（`dream.windowDays`）→ llm 整合（`reasoningEffort: off`）→ 原子写回 `<memDir>/MEMORY.md`（快照比对防并发覆盖、路径存在性验证、行数/KB 预算）；每次运行摘要追加到 `dream.log`，`index.json` 更新 `lastDreamAt`/`dreamCount`。
+- **Dream 整合**：`/dream` 命令或 `dream_now` 工具 → 收集窗口内 checkpoint（`dream.windowDays`）→ llm 整合（思考默认保留；不传 `reasoningEffort`——dsh-llm 门面会拒绝无 reasoning 能力声明模型的显式 effort，省略参数后服务端默认开思考，16K 预算足够）→ 原子写回 `<memDir>/MEMORY.md`（快照比对防并发覆盖、路径存在性验证、行数/KB 预算）；每次运行摘要追加到 `dream.log`，`index.json` 更新 `lastDreamAt`/`dreamCount`。
 - **History 回溯**：`history_search`（sessionQuery 索引，禁用时退化为持久化日志扫描；支持 `sessionId`/`kind` 过滤；`limit` 10~50）+ `history_around`（seq 锚点上下文，`before`/`after` 5~20，20KB 输出上限）。
 - **子代理排除**：子代理会话（`header.origin='subagent'` 或 `delegationDepth>0`）不参与记忆——不缓冲、不触发 checkpoint、不注入 reminder/dump，`dream` 拒绝子代理触发；写门对子代理模型写 `.dsh-memory/` 的保护仍然生效。
+- **记忆协议段**：向 `systemPrompt` 注册常驻段（order 150），向每个会话讲授记忆护栏——注入 dump 如何对待（写入时点快照/CLAIMS，行动前验证，静默接续）、哪些记忆文件可写（MEMORY.md + 本会话 notes.md）、其余 `.dsh-memory/` 路径由插件维护。文本自条件化，无记忆项目只付出约 250 tokens。
+- **Dream 自动（opt-in）**：`dream.auto: true` 时，新会话启动（`agent/session-start`，`source='startup'`）且 `index.json` 的 `lastDreamAt` 早于 `dream.intervalDays`（默认 7 天）且有素材可整合（近期 checkpoint 或非空 MEMORY.md）时，后台触发 dream。默认关；子代理会话永不触发。
 - **每项目配置**：`.dsh-memory/settings.json`（`memory_config` 工具 / `/dshmem-config` 命令）。
 - **写门保护**：agent 对 `.dsh-memory/` 的 `write`/`edit` 被拒绝，仅 `MEMORY.md` 与 `sessions/<sid>/notes.md` 可写（插件自有路径对 agent 只读）。
 - **旧版迁移**：首次触碰时，项目根下的 `MEMORY.md`（若存在）一次性复制到 `<memDir>/MEMORY.md`。
@@ -54,20 +56,21 @@ DSH 项目级跨会话记忆插件（动态插件迭代 → 正式包，设计�
 
 ```json
 { "memory": { "dirName": ".dsh-memory", "disableWrite": false },
-  "checkpoint": { "writerRetryOnce": true, "fallbackTurnInterval": 20 },
-  "dream": { "windowDays": 7, "inputMaxTokens": 50000, "maxLines": 200, "maxKB": 10 } }
+  "checkpoint": { "fallbackTurnInterval": 20 },
+  "dream": { "windowDays": 7, "inputMaxTokens": 50000, "maxLines": 200, "maxKB": 10, "auto": false, "intervalDays": 7 } }
 ```
 
 | 配置键 | 默认值 | 含义 |
 |---|---|---|
 | `memory.dirName` | `.dsh-memory` | 项目根下记忆目录名 |
 | `memory.disableWrite` | `false` | 一键冻结写：checkpoint/注入/dream 停，读保留 |
-| `checkpoint.writerRetryOnce` | `true` | checkpoint 校验失败时模型 writer 重试一次 |
 | `checkpoint.fallbackTurnInterval` | `20` | 无法测得上下文窗口时的轮次兜底触发（1~1000） |
 | `dream.windowDays` | `7` | dream 收集 checkpoint 的时间窗口（1~365） |
 | `dream.inputMaxTokens` | `50000` | 喂给 dream 输入的 checkpoint 文本预算（1000~500000） |
 | `dream.maxLines` | `200` | 整合后 MEMORY.md 行数预算（10~1000） |
 | `dream.maxKB` | `10` | 整合后 MEMORY.md 大小预算 KB（1~100） |
+| `dream.auto` | `false` | opt-in：间隔到期时在新会话启动时自动 dream |
+| `dream.intervalDays` | `7` | 两次自动 dream 的最小间隔天数（1~365） |
 
 `memory.disableWrite: true` 一键冻结写（checkpoint 停、注入停、dream 拒；读保留）。
 

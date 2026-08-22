@@ -59,10 +59,11 @@ cd Oh-My-DSH
 
 ### 🧠 dsh-memory — 项目级跨会话记忆
 
-- **会话 checkpoint**：事件捕获 → 自适应阈值阶梯自动触发 → 模型增量更新 11 节快照（KEEP 协议）
-- **压缩联动**：`compaction/end` 后注入记忆 dump，压缩失败自动跳过
-- **Dream 整合**：`/dream` 或 `dream_now` 工具 → 窗口化 checkpoint 收集 → LLM 整合 → 原子写回 `MEMORY.md`
+- **会话 checkpoint**：事件捕获 → 自适应阈值阶梯自动触发 → 模型增量更新 11 节快照（KEEP 协议，纯文本输出）；思考模式默认保留（16K 预算），零文本 `/no_think` 兜底，任何失败模式非破坏
+- **压缩联动**：`compaction/end` 后注入记忆 dump（四区块预算：checkpoint / 最近用户输入逐字 / 项目记忆 / 便签），压缩失败自动跳过
+- **Dream 整合**：`/dream` 或 `dream_now`（手动）+ `dream.auto`（新会话启动自动，间隔/素材双门）→ 窗口化 checkpoint 收集 → LLM 整合 → 原子写回 `MEMORY.md`
 - **历史检索**：`history_search`（sessionQuery 索引，禁用时回退日志扫描）+ `history_around`（seq 锚定上下文）
+- **子代理排除**：子代理会话不参与记忆（不缓冲/不触发/不注入），写门继续保护记忆目录
 - **项目级配置**：`.dsh-memory/settings.json`（`memory_config` 工具 / `/dshmem-config` 命令）
 
 ### 🖥️ dsh-webui-enhance — Web GUI 增强

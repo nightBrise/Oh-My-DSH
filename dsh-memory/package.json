@@ -1,6 +1,6 @@
 {
   "name": "dsh-memory",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Project-level cross-session memory for DSH: session checkpoints (auto-triggered), compaction linkage with memory dump injection, recall reminders, dream consolidation (MEMORY.md), history search, and per-project settings.",
   "type": "module",
   "main": "lib/index.js",

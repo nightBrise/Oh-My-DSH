@@ -59,10 +59,11 @@ The four plugins mount differently — follow each plugin's own README:
 
 ### 🧠 dsh-memory — Project-Level Cross-Session Memory
 
-- **Session checkpoints**: event capture → window-adaptive threshold ladder auto-triggers → model writer updates the 11-section snapshot incrementally (KEEP protocol)
-- **Compaction linkage**: memory dump injected after `compaction/end`; skipped when compaction fails
-- **Dream consolidation**: `/dream` or the `dream_now` tool → windowed checkpoint collection → LLM consolidation → atomic write-back to `MEMORY.md`
+- **Session checkpoints**: event capture → window-adaptive threshold ladder auto-triggers → model writer updates the 11-section snapshot incrementally (KEEP protocol, plain-text output); thinking mode on by default (16K budget) with a `/no_think` zero-text fallback; every failure mode is non-destructive
+- **Compaction linkage**: memory dump injected after `compaction/end` (four-block budgets: checkpoint / recent user input verbatim / project memory / notes); skipped when compaction fails
+- **Dream consolidation**: `/dream` or the `dream_now` tool (manual) + `dream.auto` (session-start auto-dream with interval/material gates) → windowed checkpoint collection → LLM consolidation → atomic write-back to `MEMORY.md`
 - **History lookup**: `history_search` (sessionQuery index, falls back to persisted-log scan when disabled) + `history_around` (seq-anchored context)
+- **Subagent exclusion**: subagent sessions do not participate in memory (no buffering / no triggering / no injection); the write gate still protects the memory dir
 - **Per-project settings**: `.dsh-memory/settings.json` (`memory_config` tool / `/dshmem-config` command)
 
 ### 🖥️ dsh-webui-enhance — Web GUI Enhancements
